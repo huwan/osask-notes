@@ -1,0 +1,109 @@
+﻿%编译环境：Windows 7+CTeX_2.9.2.164_Full+XeLaTeX
+%文档编码：UTF-8
+\documentclass[12pt,a4paper,landscape,fancyhdr,fntef,oneside]{ctexbook}
+\usepackage{verbatim}
+\usepackage{fancyvrb}
+\usepackage{geometry}
+\usepackage{tikz}
+\usepackage[CJKbookmarks, colorlinks, bookmarksnumbered=true,pdfstartview=FitH,linkcolor=black,citecolor=black]{hyperref}
+
+\DefineVerbatimEnvironment{code}{Verbatim}%
+  {frame=lines,framerule=0.5mm,rulecolor=\color{black},%
+  fontseries=tt,xleftmargin=4mm,tabsize=4,numbers=left,numbersep=1.5mm}
+
+\CTEXsetup[name={第,天}]{chapter}
+\CTEXsetup[number={\arabic{chapter}}]{chapter}
+\setcounter{chapter}{-1}
+
+%%%%% Definitions
+%%% Define a new command that prints the title only
+\makeatletter							% Begin definition
+\def\printtitle{%						% Define command: \printauthor
+    {\huge {\@title}\par}}		% Typesetting
+\makeatother							% End definition
+
+\title{\hfill{\small \textbf{30日でできる! OS自作入門}}\\
+\hfill \textbf{30天自制操作系统}\\
+\hfill {\large\kaishu 读书笔记}}
+
+%%% Define a new command that prints the author(s) only
+\makeatletter							% Begin definition
+\def\printauthor{%					% Define command: \printtitle
+    {\large \@author}}				% Typesetting
+\makeatother							% End definition
+
+\author{
+		\hfill 【日】川合秀実\quad 著\\	
+		\hfill 周自恒~李黎明~曾祥江~张文旭\quad 译\\	
+}
+
+\renewcommand\maketitle{%
+  \newpage
+  \thispagestyle{empty}
+  %%% Top of the page: Author, Title and Abstact
+
+\begin{minipage}{0.48\linewidth}
+	
+	\vspace{.2\textheight}
+	\includegraphics[height=0.6\textheight]{Nekomata.jpg}\\	
+
+\end{minipage} %\hspace{0pt}
+%
+\begin{minipage}{0.02\linewidth}
+	\vspace{.2\textheight}
+	\rule{3pt}{0.6\textheight}
+\end{minipage} %\hspace{0pt}
+%
+\begin{minipage}{0.5\linewidth}
+\begin{flushleft}
+\vspace{.2\textheight}
+\printtitle
+\vspace{.2\textheight}
+\printauthor
+\end{flushleft}
+\end{minipage}
+%\vspace{20pt}		% Add some vertical spacing to seperate the abstract from the rest of the article
+\clearpage}
+\renewcommand\contentsname{目\hspace{2em}录}
+
+\begin{document}
+\maketitle
+
+%\newpage
+%\thispagestyle{empty}
+%{\hfil \huge \textbf{版\ 权\ 声\ 明}}\par
+%\vspace{.1\textheight}
+%30 Nichi De Dekiru OS Jisaku Nyuumon by 川合秀実\par
+%Copyright © 2006 Hidemi Kawai\par
+%All rights reserved.\par
+%Original Japanese edition Published by Mynavi Corporation.\par
+%This Simplified Chinese edition is published by arrangement with Mynavi Corporation.\par
+%本书中文简体字版由Mynavi Corporation授权人民邮电出版社独家出版。未经出版者书面许可，不得以任何方式复制或抄袭本书内容。\par
+%版权所有，侵权必究。
+
+\newpage
+\thispagestyle{empty}
+{\hfil \huge \textbf{前\hspace{2em}言}}\par
+\vspace{.1\textheight}
+本文档为《30天自制操作系统》（人民邮电出版社）一书的读书笔记。\par
+
+文档发布在Github上，将随着阅读进度不定期更新。请访问 https://github.com/mengyingchina/osask-notes 获取文档最新的版本。\par
+\vspace{1em}
+原书的版权声明一节，有：
+\begin{quote}
+  本书中文简体字版由Mynavi Corporation授权人民邮电出版社独家出版。未经出版者书面许可，不得以任何方式复制或抄袭本书内容。
+\end{quote}
+
+由于部分内容摘自书中，不清楚这样摘录部分内容会不会存在版权问题，如果有版权问题，我会及时删除相关内容，请知情者告知\footnote{Email:mail@wanhu.me}，谢谢！
+
+\frontmatter
+\tableofcontents
+
+\mainmatter
+
+\input{chapter/Day00}
+\input{chapter/Day01}
+
+%\backmatter
+
+\end{document}
