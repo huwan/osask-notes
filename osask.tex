@@ -6,14 +6,26 @@
 \usepackage{geometry}
 \usepackage{tikz}
 \usepackage[CJKbookmarks, colorlinks, bookmarksnumbered=true,pdfstartview=FitH,linkcolor=black,citecolor=black]{hyperref}
+\usepackage{shortvrb}
+\MakeShortVerb{\|}
 
 \DefineVerbatimEnvironment{code}{Verbatim}%
   {frame=lines,framerule=0.5mm,rulecolor=\color{black},%
   fontseries=tt,xleftmargin=4mm,tabsize=4,numbers=left,numbersep=1.5mm}
+\renewenvironment{quote}
+                {\kaishu
+                 \list{}{\rightmargin   2em
+                         \listparindent 2em
+                         \itemindent    2em
+                         \parsep        0em}
+                 \item\relax}
+                {\endlist}
 
 \CTEXsetup[name={第,天}]{chapter}
 \CTEXsetup[number={\arabic{chapter}}]{chapter}
 \setcounter{chapter}{-1}
+\renewcommand\thesection{\arabic{section}}
+\CTEXsetup[format+={\flushleft}]{section}
 
 %%%%% Definitions
 %%% Define a new command that prints the title only
@@ -69,18 +81,6 @@
 \begin{document}
 \maketitle
 
-%\newpage
-%\thispagestyle{empty}
-%{\hfil \huge \textbf{版\ 权\ 声\ 明}}\par
-%\vspace{.1\textheight}
-%30 Nichi De Dekiru OS Jisaku Nyuumon by 川合秀実\par
-%Copyright © 2006 Hidemi Kawai\par
-%All rights reserved.\par
-%Original Japanese edition Published by Mynavi Corporation.\par
-%This Simplified Chinese edition is published by arrangement with Mynavi Corporation.\par
-%本书中文简体字版由Mynavi Corporation授权人民邮电出版社独家出版。未经出版者书面许可，不得以任何方式复制或抄袭本书内容。\par
-%版权所有，侵权必究。
-
 \newpage
 \thispagestyle{empty}
 {\hfil \huge \textbf{前\hspace{2em}言}}\par
@@ -91,7 +91,7 @@
 \vspace{1em}
 原书的版权声明一节，有：
 \begin{quote}
-  本书中文简体字版由Mynavi Corporation授权人民邮电出版社独家出版。未经出版者书面许可，不得以任何方式复制或抄袭本书内容。
+本书中文简体字版由Mynavi Corporation授权人民邮电出版社独家出版。未经出版者书面许可，不得以任何方式复制或抄袭本书内容。
 \end{quote}
 
 由于部分内容摘自书中，不清楚这样摘录部分内容会不会存在版权问题，如果有版权问题，我会及时删除相关内容，请知情者告知\footnote{Email:mail@wanhu.me}，谢谢！
@@ -103,6 +103,38 @@
 
 \input{chapter/Day00}
 \input{chapter/Day01}
+%\input{chapter/Day02}
+%\input{chapter/Day03}
+%\input{chapter/Day04}
+%\input{chapter/Day05}
+%\input{chapter/Day06}
+%\input{chapter/Day07}
+%\input{chapter/Day08}
+%\input{chapter/Day09}
+%\input{chapter/Day10}
+%\input{chapter/Day11}
+%\input{chapter/Day12}
+%\input{chapter/Day13}
+%\input{chapter/Day14}
+%\input{chapter/Day15}
+%\input{chapter/Day16}
+%\input{chapter/Day17}
+%\input{chapter/Day18}
+%\input{chapter/Day19}
+%\input{chapter/Day20}
+%\input{chapter/Day21}
+%\input{chapter/Day22}
+%\input{chapter/Day23}
+%\input{chapter/Day24}
+%\input{chapter/Day25}
+%\input{chapter/Day26}
+%\input{chapter/Day27}
+%\input{chapter/Day28}
+%\input{chapter/Day29}
+%\input{chapter/Day30}
+%\input{chapter/Day31}
+
+
 
 %\backmatter
 
