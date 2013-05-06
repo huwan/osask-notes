@@ -2,9 +2,9 @@
 \section{	介绍文本编辑器	}
 如中文译者所注，推荐使用Notepad++文本编辑器。
 
-使用这个软件打开光盘中提供的源代码会出现日语注释乱码，选择~格式->编码字符集-> 日文->ShiftJIS~即可正常显示代码中原书作者的日语注释。
+使用这个软件打开光盘中提供的源代码会出现日语注释乱码，选择~格式-->编码字符集--> 日文-->Shift-JIS~即可正常显示代码中原书作者的日语注释。但是，关闭文件之后重新打开又会恢复原状，解决方法为在选择Shift-JIS编码后复制内容到一个新的文件中去，保存替换原先的文件即可，需要提示的是，新建的文件要使用ANSI编码格式保存，不能是UTF-8，否则会导致后面编译时报错。
 
-原书作者推荐的文本编辑器TeraPad在中文系统中会出现软件本身的文本乱码，如菜单栏工具栏的文字，但是无需设置就可以正常显示代码日语注释。
+原书作者推荐的文本编辑器TeraPad在中文系统中会出现软件本身的文本乱码，如菜单栏工具栏的文字，但是无需设置就可以正常显示代码中的日语注释。
 
 \section{	继续开发	}
 选讲程序的核心部分，核心程序之前和启动区以外的内容需要具备软盘方面的相关知识，后面讲。
@@ -134,5 +134,74 @@ fin:
 程序中的ORG 后地址0x7c00是因为目前约定内存的|0x00007c00-0x00007dff|地址为启动区内容的装载地址，不能随便改成其它地址。
 
 \section{	先制作启动区	}
+
+\begin{quote}
+考虑到以后的开发，不要一下子用nask来制作整个磁盘映像，而是先用它来制作512字节的启动区，剩下的部分我们用磁盘映像管理工具来做。
+
+先把helloos.nas的后半部分截掉，这是因为启动区只需要最后的512字节。现在这个程序仅仅用来制作启动区，所以把文件名改为ipl.nas。
+
+然后改造asm.bat，将输出的文件名改成ipl.bin。另外，也顺便输出列表文件ipl.lst。这是一个文本文件，可以用来简单地确认每个指令是怎么翻译成机器语言的。
+
+另外还增加了一个makeimg.bat文件。它是以ipl.bin为基础，制作磁盘映像文件helloos.img 的批处理文件。利用作者开发的磁盘映像管理工具edimg.exe，先读入一个空白的磁盘映像文件，然后在开头写入ipl.bin，最后输出名为helloos.img的磁盘映像文件。
+
+这样，从编译到测试的步骤为双击!cons，然后在命令行窗口中按顺序输入asm -->makeimg -->run这3个命令。
+\end{quote}
+
+下一节有更简单的编译方式。
+
+
 \section{	Makefile入门	}
+
+作者编写了一个Makefile文件，这样就可以方便的生成所需要的文件。
+
+\dag |projects\02_day\helloos5|
+\begin{code}[label= Makefile]
+
+# デフォルト動作
+
+default :
+	../z_tools/make.exe img
+
+# ファイル生成規則
+
+ipl.bin : ipl.nas Makefile
+	../z_tools/nask.exe ipl.nas ipl.bin ipl.lst
+
+helloos.img : ipl.bin Makefile
+	../z_tools/edimg.exe   imgin:../z_tools/fdimg0at.tek \
+		wbinimg src:ipl.bin len:512 from:0 to:0   imgout:helloos.img
+
+# コマンド
+
+asm :
+	../z_tools/make.exe -r ipl.bin
+
+img :
+	../z_tools/make.exe -r helloos.img
+
+run :
+	../z_tools/make.exe img
+	copy helloos.img ..\z_tools\qemu\fdimage0.bin
+	../z_tools/make.exe -C ../z_tools/qemu
+
+install :
+	../z_tools/make.exe img
+	../z_tools/imgtol.com w a: helloos.img
+
+clean :
+	-del ipl.bin
+	-del ipl.lst
+
+src_only :
+	../z_tools/make.exe clean
+	-del helloos.img
+\end{code}
+
+使用方法为：用!cons 打开命令行窗口，然后就可以通过输入 |make img|来生成映像文件，输入 |make run|来运行，等等。可以使用的参数在 Makefile 文件中写明了。另外，当执行不带参数的make命令时，相当于执行 |make img|。
+
+
+
+
+
+
 
