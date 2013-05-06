@@ -7,22 +7,23 @@
 原书作者推荐的文本编辑器TeraPad在中文系统中会出现软件本身的文本乱码，如菜单栏工具栏的文字，但是无需设置就可以正常显示代码日语注释。
 
 \section{	继续开发	}
-
-\begin{code}[label=helloos.nas 节选]
+选讲程序的核心部分，核心程序之前和启动区以外的内容需要具备软盘方面的相关知识，后面讲。
+\dag |projects\02_day\helloos3|
+\begin{code}[label=helloos.nas]
 ; hello-os
 ; TAB=4
 
-		ORG		0x7c00			; このプログラムがどこに読み込まれるのか
+		ORG		0x7c00			; 指明程序的装载地址
 
-; 以下は標準的なFAT12フォーマットフロッピーディスクのための記述
+; 以下的记述用于标准FAT12格式软盘
 
 		JMP		entry
 		DB		0x90
 ---中略---
-; プログラム本体
+; 程序核心
 
 entry:
-		MOV		AX,0			; レジスタ初期化
+		MOV		AX,0			; 初始化寄存器
 		MOV		SS,AX
 		MOV		SP,0x7c00
 		MOV		DS,AX
@@ -31,34 +32,107 @@ entry:
 		MOV		SI,msg
 putloop:
 		MOV		AL,[SI]
-		ADD		SI,1			; SIに1を足す
+		ADD		SI,1			; 给SI加1
 		CMP		AL,0
 		JE		fin
-		MOV		AH,0x0e			; 一文字表示ファンクション
-		MOV		BX,15			; カラーコード
-		INT		0x10			; ビデオBIOS呼び出し
+		MOV		AH,0x0e			;显示一个文字
+		MOV		BX,15			; 指定字符颜色
+		INT		0x10			; 调用显卡BIOS
 		JMP		putloop
 fin:
-		HLT						; 何かあるまでCPUを停止させる
-		JMP		fin				; 無限ループ
+		HLT						; 让CPU停止，等待指令
+		JMP		fin				; 无限循环
 
 msg:
-		DB		0x0a, 0x0a		; 改行を2つ
+		DB		0x0a, 0x0a		; 换行两次
 		DB		"hello, world"
-		DB		0x0a			; 改行
+		DB		0x0a			; 换行
 		DB		0
-
-		RESB	0x7dfe-$		; 0x7dfeまでを0x00で埋める命令
-
-		DB		0x55, 0xaa
-
-; 以下はブートセクタ以外の部分の記述
-
-		DB		0xf0, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00
-		RESB	4600
-		DB		0xf0, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00
-		RESB	1469432  
 \end{code}
+\cs
+
+ORG指令：程序从指定的这个地址开始，也就是把程序装载到内存中的指定地址。这里是0x7c00。
+
+JMP指令：无条件跳转。配合下面的标签"entry"等，可指定跳转的目的地。
+
+“entry”：标签声明，用于指定JMP指令的跳转地址。
+
+MOV指令：赋值。“MOV AX,0”相当于“AX=0”这样一个赋值语句。同样，“MOV SS,AX”相当于“SS=AX”。
+\cs
+
+相关寄存器：
+
+16位寄存器：AX、CX、DX、BX、SP、BP、SI、DI；
+
+其中，前四个的高低8位可当8位寄存器用，AL、CL、DL、BL、AH、CH、DH、BH；
+
+32位寄存器：16位寄存器可以扩展为32位寄存器，EAX、ECX、EDX、EBX、ESP、EBP、ESI、EDI；
+
+段寄存器：ES、CS、SS、DS、FS、GS；
+\cs
+
+“MOV SI,msg”：这里是可以“将标号赋值给寄存器”。在汇编语言中，所有的标号都仅仅是单纯的数字。每个标号对应的数字，是由汇编器根据ORG指令计算出来的。编译器计算出的“标号的地方对应的内存地址”就是那个标号的值。这里，msg的地址是0x7c74，所以这个指令就是把0x7c74带入到SI寄存器去。
+
+“MOV AL,[SI]”：MOV指令的数据传送源和传送目的地不仅可以是寄存器或常数，也可以是内存地址。这个时候，我们使用方括号(|[]|)来表示内存地址。另外，可以用来指定内存地址的寄存器只有BX、BP、SI、DI这几个。
+
+可以用下面指令将SI地址的1字节内容读入到AL：
+
+|MOV AL, BYTE [SI]|
+
+由于MOV指令的规则，即源数据和目的数据必须位数相同，也就是向AL里代入的只能是BYTE，这样以来就可以省略BYTE，即可以写成：
+
+|MOV AL, [SI]|
+\cs
+
+ADD指令是加法指令。若以C语言的形式改写“ADD SI,1”的话，就是“SI=SI=1”。
+
+CMP是比较指令。“CMP AL,0”，是将AL中的值与0进行比较。
+
+JE 是条件跳转指令之一。所谓的条件跳转指令，就是根据比较的结果决定跳转或者不跳转。就JE指令而言，如果比较结果相等，则跳转到指定的地址；而如果比较结果不等，则不跳转，继续执行下一条指令。
+
+|CMP AL, 0|
+
+|JE fin|
+
+这两条指令相当于：
+
+|if(AL == 0){ goto fin;}|
+\cs
+
+INT是软件中断指令。在这里是调用显卡 BIOS，不解释。
+\cs
+
+HLT指令，让CPU停止动作，进入待机状态。
+\cs
+
+用C语言改写helloos.nas程序节选。
+\begin{code}
+entry:
+	AX = 0;
+	SS = AX;
+	SP = 0x7c00;
+	DS = AX;
+	ES = AX;
+	SI = msg;
+putloop:
+	AL = BYTE [SI];
+	SI = SI+1;
+	if (AL ==0 ){goto fin;}
+	AH = 0x0e;
+	BX = 15;
+	INT 0x10;
+	goto putloop;
+fin:
+	HLT;
+	goto fin;
+\end{code}
+
+就是有了这个程序，我们才能把msg里写的数据，一个字符一个字符地显示出来，并且数据变成0以后，HLT指令就会让程序进入无限循环，“hello,world” 就是这样显示出来的。
+
+\cs
+
+程序中的ORG 后地址0x7c00是因为目前约定内存的|0x00007c00-0x00007dff|地址为启动区内容的装载地址，不能随便改成其它地址。
+
 \section{	先制作启动区	}
 \section{	Makefile入门	}
 
