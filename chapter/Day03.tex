@@ -55,13 +55,13 @@
 
 含有IPL的启动区，位于C0-H0-S1（柱面0，磁头0，扇区1），下一个扇区是C0-H0-S2，这次我们要装载的扇区就是这个。
 
-ES:BX=缓冲地址~是个内存地址，表明要把软盘上读出的数据装载到内存的哪个位置。由于一个BX只能表示0$\sim$0xffff的值，即64K，太小了，使用段寄存器以ES:BX这种方式来表示地址，写成“MOV AL,[ES:BX]”，代表“ES$\times$16+BX”的内存地址。程序中指定了ES=0x0820，BX=0，所以软盘的数据会被装载到0x8200$\sim$0x83ff的位置。
+ES:BX=缓冲地址~是个内存地址，表明要把软盘上读出的数据装载到内存的哪个位置。由于一个BX只能表示0$\sim$0xffff的值，即64K，太小了，使用段寄存器以ES:BX这种方式来表示地址，写成“MOV AL,[ES:BX]”，代表“ES$\times$16+BX” 的内存地址。程序中指定了ES=0x0820，BX=0，所以软盘的数据会被装载到0x8200$\sim$0x83ff的位置。
 \cs
 
 作者使用变量的方式改写了Makefile文件，可以看一下。
 
 \section{	试错	}
-鉴于软盘的不可靠性，有时候需要在软盘读不出来的时候多读几次，这里重读5次。
+鉴于软盘的不可靠性，有时候需要在软盘读不出来的时候多读几次，这里重读5 次。
 
 \dag|projects\03_day\harib00b|
 \begin{code}[label=ipl.nas 本次添加的部分]
@@ -204,7 +204,7 @@ fin:
 
 使用作者最开始提到的二进制编辑器查看haribote.img 和haribote.sys内容，可以发现0x002600附近保存着文件名，0x004200位置保存着文件的内容，这里分别是haribotesys 和编译后的harbote.sys里面的内容“|F4 EB FD|”。
 
-这样，要做的工作就是将操作系统的本身的内容写到名为harbote.sys的问卷中，再把它保存到磁盘映像里，然后从启动区执行这个harbote.sys就行了。
+这样，要做的工作就是将操作系统的本身的内容写到名为harbote.sys的问卷中，再把它保存到磁盘映像里，然后从启动区执行这个harbote.sys 就行了。
 \section{	从启动区执行操作系统	}
 现在的程序是从启动区开始，把磁盘上的内容装载到内存 0x8000 号地址，所以磁盘映像上位于 0x004200 号地址的程序位于内存的0x8000+0x4200=0xc200号地址。
 
@@ -250,8 +250,130 @@ fin:
 
 运行“make run”查看效果，应该是一片漆黑画面。
 
-\section{	32位模式前期准备	}
+\section[32位模式前期准备]{32位模式前期准备\protect\footnote{书中作者先讲述了为什么用32位模式，自己看下书吧。}}
+
+考虑到系统以后会支持各种不同的画面模式，就需要把现在的设置信息（BOOT\_INFO）保存起来以备后用。
+
+\dag|projects\03_day\harib00h|
+\begin{code}[label=haribote.nas]
+; haribote-os
+; TAB=4
+
+; BOOT_INFO関係
+CYLS	EQU		0x0ff0			; ブートセクタが設定する
+LEDS	EQU		0x0ff1
+VMODE	EQU		0x0ff2			; 色数に関する情報。何ビットカラーか？
+SCRNX	EQU		0x0ff4			; 解像度のX
+SCRNY	EQU		0x0ff6			; 解像度のY
+VRAM	EQU		0x0ff8			; グラフィックバッファの開始番地
+
+		ORG		0xc200			; このプログラムがどこに読み込まれるのか
+
+		MOV		AL,0x13			; VGAグラフィックス、320x200x8bitカラー
+		MOV		AH,0x00
+		INT		0x10
+		MOV		BYTE [VMODE],8	; 画面モードをメモする
+		MOV		WORD [SCRNX],320
+		MOV		WORD [SCRNY],200
+		MOV		DWORD [VRAM],0x000a0000
+
+; キーボードのLED状態をBIOSに教えてもらう
+
+		MOV		AH,0x02
+		INT		0x16 			; keyboard BIOS
+		MOV		[LEDS],AL
+
+fin:
+		HLT
+		JMP		fin
+\end{code}
+
+|[VRAM]|里保存的是 0xa0000。VRAM是显卡内存，它的各个地址对应画面上的像素。不同的画面模式对应不同的VRAM，因此这里将使用的VRAM地址保存在BOOT\_INFO里。这种画面模式下VRAM是“0xa000$\sim$0xaffff的64KB”。画面的像素数、颜色数以及从BIOS取得的键盘信息都保存在内存0x0ff0位置附近。
 
 
 \section{	开始导入C语言	}
+
+现在，直接切换到32位模式，然后运行C语言写程序。
+
+程序做了很大的改动，haribote.sys的前半部分使用汇编语言编写的，后半部分是用C语言编写的，所以将haribote.nas改成了asmhead.nas，并且，为了调用C 语言写的程序，添加了100行左右的汇编代码。这些汇编代码作者在后面再讲解，这里直接跳过，分析C语言部分。
+
+C语言部分写在bootpack.c文件中。
+
+\dag|projects\03_day\harib00i|
+\begin{code}[label=bootpack.c]
+void HariMain(void)
+{
+
+fin:
+	/* ここにHLTを入れたいのだが、C言語ではHLTが使えない！ */
+	goto fin;
+
+}
+\end{code}
+
+\cs
+
+bootpack.c变成机器语言的过程：
+\begin{enumerate}
+  \item 使用ccl.exe从bootpack.c生成bootpack.gas；
+  \item 使用gas2nask.exe从 bootpack.gas生成bootpack.nas；
+  \item 使用nask.exe从bootpack.nas生成bootpack.obj；
+  \item 使用obj2bim.exe从bootpack.obj生成bootpack.bim；
+  \item 使用bim2hrb.exe从bootpack.bim生成bootpack.hrb；
+  \item 使用copy指令将asmhead.bin与bootpack.hrb单纯结合起来就生成了haribote.sys。
+\end{enumerate}
+
 \section{	实现HLT（harib00j）	}
+
+\dag|projects\03_day\harib00j|
+\begin{code}[label=naskfun.nas]
+; naskfunc
+; TAB=4
+
+[FORMAT "WCOFF"]				; オブジェクトファイルを作るモード	
+[BITS 32]						; 32ビットモード用の機械語を作らせる
+
+
+; オブジェクトファイルのための情報
+
+[FILE "naskfunc.nas"]			; ソースファイル名情報
+
+		GLOBAL	_io_hlt			; このプログラムに含まれる関数名
+
+
+; 以下は実際の関数
+
+[SECTION .text]		; オブジェクトファイルではこれを書いてからプログラムを書く
+
+_io_hlt:	; void io_hlt(void);
+		HLT
+		RET
+\end{code}
+
+使用汇编语言编写了一个函数，io\_hlt。将输出设置为WCOFF模式，可以编译成目标文件，与bootpack.obj链接。
+
+在nask目标文件的模式下，必须设定文件名信息，然后再写明下面程序的函数名。需要先在函数名前面加上“\_”，否则不能很好地与C语言函数链接。需要链接的函数名都需要GLOBAL指令声明。
+
+下面写一个实际的函数。先写一个与用GLOBAL声明的函数名相同的标号，从此处开始写代码就可以了。
+
+\dag|projects\03_day\harib00j|
+\begin{code}[label=bootpack.c]
+/* 他のファイルで作った関数がありますとCコンパイラに教える */
+
+void io_hlt(void);
+
+/* 関数宣言なのに、{}がなくていきなり;を書くと、
+	他のファイルにあるからよろしくね、という意味になるのです。 */
+
+void HariMain(void)
+{
+
+fin:
+	io_hlt(); /* これでnaskfunc.nasの_io_hltが実行されます */
+	goto fin;
+
+}
+\end{code}
+
+
+“make run”运行程序。
