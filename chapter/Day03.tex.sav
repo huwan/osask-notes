@@ -191,67 +191,9 @@ JB(jump if below),如果小于就跳转。
 现在已经能够把软盘最初的$10\times 2\times 18\times512=184320 byte= 180KB $的内容完整的装载到内存中了。
 
 \section{	着手开发操作系统	}
-编写一个短小的程序，只让它HLT。
 
-\dag |projects\03_day\harib00e|
-\begin{code}[label=haribote.nas]
-fin:
-    HLT
-    JMP fin
-\end{code}
-
-使用nask编译，输出成harbote.sys。用“make img”指令来生成映像文件。
-
-使用作者最开始提到的二进制编辑器查看haribote.img 和haribote.sys内容，可以发现0x002600附近保存着文件名，0x004200位置保存着文件的内容，这里分别是haribotesys 和编译后的harbote.sys里面的内容“|F4 EB FD|”。
-
-这样，要做的工作就是将操作系统的本身的内容写到名为harbote.sys的问卷中，再把它保存到磁盘映像里，然后从启动区执行这个harbote.sys就行了。
 \section{	从启动区执行操作系统	}
-现在的程序是从启动区开始，把磁盘上的内容装载到内存 0x8000 号地址，所以磁盘映像上位于 0x004200 号地址的程序位于内存的0x8000+0x4200=0xc200号地址。
-
-修改haribote.nas，加上ORG 0xc200，然后在ipl.nas处理的最后加上JMP 0xc200这个指令。详细程序见“projects/03\_day/harib00f”。
-
-通过运行“make run”来运行程序。
 \section{	确认操作系统的执行情况	}
-通过切换以下画面模式，让画面变成一片漆黑，证明程序正常运行。
-
-\dag |projects/03_day/harib00g|
-
-\begin{code}
-; haribote-os
-; TAB=4
-
-		ORG		0xc200			; このプログラムがどこに読み込まれるのか
-
-		MOV		AL,0x13			; VGAグラフィックス、320x200x8bitカラー
-		MOV		AH,0x00
-		INT		0x10
-fin:
-		HLT
-		JMP		fin
-\end{code}
-
-设置显卡模式：
-\begin{itemize}
-  \item AH=0x00
-  \item AL=模式：
-  \begin{itemize}
-    \item 0x03：16色字符模式，80$\times$25
-    \item 0x12：VGA图形模式，640$\times$480$\times$4位彩色模式，独特的4面存储模式
-    \item 0x13：VGA图形模式，320$\times$200$\times$8位彩色模式，调色板模式
-    \item 扩展VGA图形模式，800$\times$600$\times$4位彩色模式，独特的4面存储模式
-  \end{itemize}
-  \item 返回值：无
-\end{itemize}
-
-程序的变动：
-将ipl.nas改名为ipl10.nas，提醒这个程序只能读入10个柱面。
-
-想把磁盘装载内容的结束地址告诉给haribote.sys，在ipl10.nas文件中“JMP 0xc200”之前加入了一行代码，将CYLS的值写到内存地址0x0ff0中。
-
-运行“make run”查看效果，应该是一片漆黑画面。
-
 \section{	32位模式前期准备	}
-
-
 \section{	开始导入C语言	}
 \section{	实现HLT（harib00j）	}
