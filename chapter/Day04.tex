@@ -36,7 +36,7 @@ VRAM中都写入了15，意思是全部像素的颜色都是第15种颜色，即
 \begin{code}[label=bootpack.c]
 
 	for (i = 0xa0000; i <= 0xaffff; i++) {
-		write_mem8(i, i&0x0f); 
+		write_mem8(i, i&0x0f);
 	}
 \end{code}
 
@@ -47,7 +47,7 @@ VRAM中都写入了15，意思是全部像素的颜色都是第15种颜色，即
 使用C语言的指针，修改上面程序，实现内存写入。
 
 \dag|projects\04_day\harib01c|
-\begin{code}
+\begin{code}[label=bootpack.c]
 void io_hlt(void);
 
 void HariMain(void)
@@ -69,8 +69,297 @@ void HariMain(void)
 }
 \end{code}
 \section{	指针的应用（1）（harib01d）	}
+本节和下面一个小节做的事情和上面一样，只是换了种C语言的写法。
+
+\dag|projects\04_day\harib01d|
+\begin{code}[label=bootpack.c]
+    p = (char *) 0xa0000; /* 番地を代入 */
+
+	for (i = 0; i <= 0xffff; i++) {
+		*(p + i) = i & 0x0f;
+	}
+
+\end{code}
 \section{	指针的应用（2）（harib01e）	}
+\dag|projects\04_day\harib01e|
+\begin{code}[label=bootpack.c]
+	p = (char *) 0xa0000; /* 番地を代入 */
+
+	for (i = 0; i <= 0xffff; i++) {
+		p[i] = i & 0x0f;
+	}
+\end{code}
 \section{	色号设定（harib01f）	}
+在描绘一个操作系统模样的画面之前，需要先处理颜色问题。这次使用的是320$\times$200的8位颜色模式，色号使用8位（二进制）数，也就是只能使用0$\sim$255的数。8位的彩色模式由程序员指定0$\sim$255的数字对应的颜色，比如25号颜色对应\#ffffff，26号颜色对应\#123456等。这种方式叫做调色板（palette）。
+
+这里指定0$\sim$15这16种颜色。
+
+\dag|projects\04_day\harib01f|
+\begin{code}[label=bootpack.c]
+void io_hlt(void);
+void io_cli(void);
+void io_out8(int port, int data);
+int io_load_eflags(void);
+void io_store_eflags(int eflags);
+
+/* 実は同じソースファイルに書いてあっても、定義する前に使うのなら、
+	やっぱり宣言しておかないといけない。 */
+
+void init_palette(void);
+void set_palette(int start, int end, unsigned char *rgb);
+
+void HariMain(void)
+{
+	int i; /* 変数宣言。iという変数は、32ビットの整数型 */
+	char *p; /* pという変数は、BYTE [...]用の番地 */
+
+	init_palette(); /* パレットを設定 */
+
+	p = (char *) 0xa0000; /* 番地を代入 */
+
+	for (i = 0; i <= 0xffff; i++) {
+		p[i] = i & 0x0f;
+	}
+
+	for (;;) {
+		io_hlt();
+	}
+}
+
+void init_palette(void)
+{
+	static unsigned char table_rgb[16 * 3] = {
+		0x00, 0x00, 0x00,	/*  0:黒 */
+		0xff, 0x00, 0x00,	/*  1:明るい赤 */
+		0x00, 0xff, 0x00,	/*  2:明るい緑 */
+		0xff, 0xff, 0x00,	/*  3:明るい黄色 */
+		0x00, 0x00, 0xff,	/*  4:明るい青 */
+		0xff, 0x00, 0xff,	/*  5:明るい紫 */
+		0x00, 0xff, 0xff,	/*  6:明るい水色 */
+		0xff, 0xff, 0xff,	/*  7:白 */
+		0xc6, 0xc6, 0xc6,	/*  8:明るい灰色 */
+		0x84, 0x00, 0x00,	/*  9:暗い赤 */
+		0x00, 0x84, 0x00,	/* 10:暗い緑 */
+		0x84, 0x84, 0x00,	/* 11:暗い黄色 */
+		0x00, 0x00, 0x84,	/* 12:暗い青 */
+		0x84, 0x00, 0x84,	/* 13:暗い紫 */
+		0x00, 0x84, 0x84,	/* 14:暗い水色 */
+		0x84, 0x84, 0x84	/* 15:暗い灰色 */
+	};
+	set_palette(0, 15, table_rgb);
+	return;
+
+	/* static char 命令は、データにしか使えないけどDB命令相当 */
+}
+
+void set_palette(int start, int end, unsigned char *rgb)
+{
+	int i, eflags;
+	eflags = io_load_eflags();	/* 割り込み許可フラグの値を記録する */
+	io_cli(); 					/* 許可フラグを0にして割り込み禁止にする */
+	io_out8(0x03c8, start);
+	for (i = start; i <= end; i++) {
+		io_out8(0x03c9, rgb[0] / 4);
+		io_out8(0x03c9, rgb[1] / 4);
+		io_out8(0x03c9, rgb[2] / 4);
+		rgb += 3;
+	}
+	io_store_eflags(eflags);	/* 割り込み許可フラグを元に戻す */
+	return;
+}
+\end{code}
+
+函数init\_palette开头一段以static开始的语句，声明了一个table\_rgb。
+
+函数set\_palette中使用了0x03c8、0x03c9 之类的设备号码，这些设备号码来自于VGA的文档。
+
+调色板的访问步骤：
+\begin{itemize}
+  \item 首先在一连串的访问中屏蔽中断（比如CLI）。
+  \item 将想要设定的调色板号码写入0x03c8，紧接着，按R，G，B的顺序写入0x03c9。如果还想继续设定下一个调色板，则省略调色板号码，再按照RGB的顺序写入0x03c9即可。
+  \item 如果想要读出当前调色板的状态，首先要将调色板的号码写入0x03c7，再从0x03c9读取三次。读出的顺序就是R，G，B。如果要继续读出下一个调色板，同样是省略调色板号码，按RGB的顺序读出。
+  \item 如果最初执行了CLI，那么最后要执行STI。
+\end{itemize}
+
+这里提到的CLI（clear interrupt flag）是将中断标志置为0的指令，STI（set interrupt flag）是将中断标志置为1的指令。
+
+set\_palette中想要做的事情是在设定调色板之前首先执行CLI，处理结束后恢复中断标志，通过谢了函数io\_load\_eflags来读取最初的eflags 值，处理结束后直接用io\_store\_eflags恢复。
+
+\begin{code}[label=naskfunc.nas]
+; naskfunc
+; TAB=4
+
+[FORMAT "WCOFF"]				; オブジェクトファイルを作るモード	
+[INSTRSET "i486p"]				; 486の命令まで使いたいという記述
+[BITS 32]						; 32ビットモード用の機械語を作らせる
+[FILE "naskfunc.nas"]			; ソースファイル名情報
+
+		GLOBAL	_io_hlt, _io_cli, _io_sti, _io_stihlt
+		GLOBAL	_io_in8,  _io_in16,  _io_in32
+		GLOBAL	_io_out8, _io_out16, _io_out32
+		GLOBAL	_io_load_eflags, _io_store_eflags
+
+[SECTION .text]
+
+_io_hlt:	; void io_hlt(void);
+		HLT
+		RET
+
+_io_cli:	; void io_cli(void);
+		CLI
+		RET
+
+_io_sti:	; void io_sti(void);
+		STI
+		RET
+
+_io_stihlt:	; void io_stihlt(void);
+		STI
+		HLT
+		RET
+
+_io_in8:	; int io_in8(int port);
+		MOV		EDX,[ESP+4]		; port
+		MOV		EAX,0
+		IN		AL,DX
+		RET
+
+_io_in16:	; int io_in16(int port);
+		MOV		EDX,[ESP+4]		; port
+		MOV		EAX,0
+		IN		AX,DX
+		RET
+
+_io_in32:	; int io_in32(int port);
+		MOV		EDX,[ESP+4]		; port
+		IN		EAX,DX
+		RET
+
+_io_out8:	; void io_out8(int port, int data);
+		MOV		EDX,[ESP+4]		; port
+		MOV		AL,[ESP+8]		; data
+		OUT		DX,AL
+		RET
+
+_io_out16:	; void io_out16(int port, int data);
+		MOV		EDX,[ESP+4]		; port
+		MOV		EAX,[ESP+8]		; data
+		OUT		DX,AX
+		RET
+
+_io_out32:	; void io_out32(int port, int data);
+		MOV		EDX,[ESP+4]		; port
+		MOV		EAX,[ESP+8]		; data
+		OUT		DX,EAX
+		RET
+
+_io_load_eflags:	; int io_load_eflags(void);
+		PUSHFD		; PUSH EFLAGS という意味
+		POP		EAX
+		RET
+
+_io_store_eflags:	; void io_store_eflags(int eflags);
+		MOV		EAX,[ESP+4]
+		PUSH	EAX
+		POPFD		; POP EFLAGS という意味
+		RET
+\end{code}
+
+程序中，PUSHFD是“push flags double-world”的缩写，POPFD是“pop flags double-world”的缩写。
 \section{	绘制矩形（harib01g）	}
+开始绘制一些图形。
+
+首先从VRAM与画面上的“点”的关系开始说起。
+
+在当前画面模式中，画面上有320$\times$200（64000）个像素。假设左上点的坐标是（0,0），右下点的坐标是（319319），那么像素坐标（x,y）对应的VRAM地址按下式计算：
+\begin{equation*}
+  0xa0000+x+y*320
+\end{equation*}
+按照上式计算像素的地址，往该地址的内存里存放某种颜色的号码，那么画面上该像素的位置就出现相应的颜色。这样就画了一个点。继续增加x的值，循环以上操作，就能画一条直线，再向下循环这条直线，就能画出很多直线，组成一个有填充色的长方形。
+
+\dag|projects\04_day\harib01g|
+\begin{code}[label=bootpack.c]
+#define COL8_000000		0
+#define COL8_FF0000		1
+#define COL8_00FF00		2
+#define COL8_FFFF00		3
+#define COL8_0000FF		4
+#define COL8_FF00FF		5
+#define COL8_00FFFF		6
+#define COL8_FFFFFF		7
+#define COL8_C6C6C6		8
+#define COL8_840000		9
+#define COL8_008400		10
+#define COL8_848400		11
+#define COL8_000084		12
+#define COL8_840084		13
+#define COL8_008484		14
+#define COL8_848484		15
+
+void HariMain(void)
+{
+	char *p; /* pという変数は、BYTE [...]用の番地 */
+
+	init_palette(); /* パレットを設定 */
+
+	p = (char *) 0xa0000; /* 番地を代入 */
+
+	boxfill8(p, 320, COL8_FF0000,  20,  20, 120, 120);
+	boxfill8(p, 320, COL8_00FF00,  70,  50, 170, 150);
+	boxfill8(p, 320, COL8_0000FF, 120,  80, 220, 180);
+
+	for (;;) {
+		io_hlt();
+	}
+}
+
+void boxfill8(unsigned char *vram, int xsize, unsigned char c, int x0, int y0, int x1, int y1)
+{
+	int x, y;
+	for (y = y0; y <= y1; y++) {
+		for (x = x0; x <= x1; x++)
+			vram[y * xsize + x] = c;
+	}
+	return;
+}
+\end{code}
+上面的程序写了一个boxfill8的函数，被调用3次，绘制了3个矩形。
 \section{	今天的成果（harib01h）	}
+绘制一个简单的带任务条的系统桌面，简单到简陋……竟然有凹凸效果！
+
+\dag|projects\04_day\harib01h|
+\begin{code}[label=bootpack.c]
+void HariMain(void)
+{
+	char *vram;
+	int xsize, ysize;
+
+	init_palette();
+	vram = (char *) 0xa0000;
+	xsize = 320;
+	ysize = 200;
+
+	boxfill8(vram, xsize, COL8_008484,  0,         0,          xsize -  1, ysize - 29);
+	boxfill8(vram, xsize, COL8_C6C6C6,  0,         ysize - 28, xsize -  1, ysize - 28);
+	boxfill8(vram, xsize, COL8_FFFFFF,  0,         ysize - 27, xsize -  1, ysize - 27);
+	boxfill8(vram, xsize, COL8_C6C6C6,  0,         ysize - 26, xsize -  1, ysize -  1);
+
+	boxfill8(vram, xsize, COL8_FFFFFF,  3,         ysize - 24, 59,         ysize - 24);
+	boxfill8(vram, xsize, COL8_FFFFFF,  2,         ysize - 24,  2,         ysize -  4);
+	boxfill8(vram, xsize, COL8_848484,  3,         ysize -  4, 59,         ysize -  4);
+	boxfill8(vram, xsize, COL8_848484, 59,         ysize - 23, 59,         ysize -  5);
+	boxfill8(vram, xsize, COL8_000000,  2,         ysize -  3, 59,         ysize -  3);
+	boxfill8(vram, xsize, COL8_000000, 60,         ysize - 24, 60,         ysize -  3);
+
+	boxfill8(vram, xsize, COL8_848484, xsize - 47, ysize - 24, xsize -  4, ysize - 24);
+	boxfill8(vram, xsize, COL8_848484, xsize - 47, ysize - 23, xsize - 47, ysize -  4);
+	boxfill8(vram, xsize, COL8_FFFFFF, xsize - 47, ysize -  3, xsize -  4, ysize -  3);
+	boxfill8(vram, xsize, COL8_FFFFFF, xsize -  3, ysize - 24, xsize -  3, ysize -  3);
+
+	for (;;) {
+		io_hlt();
+	}
+}
+\end{code}
+
 
