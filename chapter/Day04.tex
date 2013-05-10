@@ -1,7 +1,73 @@
 ﻿\chapter{	C语言与画面显示的练习	}
 \section{	用C语言实现内存写入（harib01a）	}
+在让画面黑屏的基础上，通过写VRAM的值，在画面上画出些“花”来。
+
+\dag|projects\04_day\harib01a|
+\begin{code}[label=naskfunc.nas]
+_write_mem8:	; void write_mem8(int addr, int data);
+		MOV		ECX,[ESP+4]		; [ESP+4]にaddrが入っているのでそれをECXに読み込む
+		MOV		AL,[ESP+8]		; [ESP+8]にdataが入っているのでそれをALに読み込む
+		MOV		[ECX],AL
+		RET
+\end{code}
+
+C语言部分：
+\begin{code}[label=bootpack.c]
+void io_hlt(void);
+void write_mem8(int addr, int data);
+
+void HariMain(void)
+{
+	int i; /* 変数宣言。iという変数は、32ビットの整数型 */
+
+	for (i = 0xa0000; i <= 0xaffff; i++) {
+		write_mem8(i, 15); /* MOV BYTE [i],15 */
+	}
+
+	for (;;) {
+		io_hlt();
+	}
+}
+\end{code}
+
+VRAM中都写入了15，意思是全部像素的颜色都是第15种颜色，即白色，因此运行程序后画面会变成白色。
 \section{	条纹图案（harib01b）	}
+\dag|projects\04_day\harib01b|
+\begin{code}[label=bootpack.c]
+
+	for (i = 0xa0000; i <= 0xaffff; i++) {
+		write_mem8(i, i&0x0f); 
+	}
+\end{code}
+
+通过与运算，将15改成特殊的值，低4位保持不变，高4位全部变成0。这样每隔16个像素，色号就反复一次。
+
+
 \section{	挑战指针（harib01c）	}
+使用C语言的指针，修改上面程序，实现内存写入。
+
+\dag|projects\04_day\harib01c|
+\begin{code}
+void io_hlt(void);
+
+void HariMain(void)
+{
+	int i; /* 変数宣言。iという変数は、32ビットの整数型 */
+	char *p; /* pという変数は、BYTE [...]用の番地 */
+
+	for (i = 0xa0000; i <= 0xaffff; i++) {
+
+		p = i; /* 番地を代入 */
+		*p = i & 0x0f;
+
+		/* これで write_mem8(i, i & 0x0f); の代わりになる */
+	}
+
+	for (;;) {
+		io_hlt();
+	}
+}
+\end{code}
 \section{	指针的应用（1）（harib01d）	}
 \section{	指针的应用（2）（harib01e）	}
 \section{	色号设定（harib01f）	}
