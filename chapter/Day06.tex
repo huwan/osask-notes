@@ -1,8 +1,162 @@
 ﻿\chapter{	分割编译与中断处理	}
 \section{	分割源文件（harib03a）	}
+将bootpack.c分割成了graphic.c、dsctbl.c、bootpack.c。
 \section{	整理Makefile（harib03b）	}
+将处理相同事情的部分归纳，按照一般规则来处理。
 \section{	整理头文件（harib03c）	}
+将各个源文件重复部分去掉，归纳起来，放到bootpack.h的头文件里。在具体的源文件里引用头文件。
 \section{	意犹未尽	}
+介绍上一章naskfunc.nas的|load_gdtr|函数：
+\begin{code}
+_load_gdtr:		; void load_gdtr(int limit, int addr);
+		MOV		AX,[ESP+4]		; limit
+		MOV		[ESP+6],AX
+		LGDT	[ESP+6]
+		RET
+\end{code}
+函数用来将指定的段上限（limit）和地址赋值给名为GDTR的48位寄存器。这是一个很特别的48位寄存器，并不能用我们常用的MOV指令来赋值。给它赋值的时候，唯一的方法就是指定内存地址，从指定的地址读取6个字节，然后复制给GDTR寄存器。完成这一任务的就是LGDT。
+
+该寄存器的低16位是段上限，它等于“GDT的有效字节数-1”。剩下的高32位代表GDT的开始地址。
+
+在最初执行这个函数的时候，|DWORD[ESP+4]|里存放的是段上限，|DWORD[ESP+8]|里存放的是地址。具体到实际的数值，就是0x000fff和0x00270000。把它们按字节写出来的话就成了|FF FF 00 00 00 27 00|(注意地位放在内存地址小的字节里)。为了执行LGDT，希望把它们排列成|FF FF 00 00 00 27 00|的样子，所以就先用“|MOV AX,[ESP+4]|”读取最初的0xffff，然后再写到|[ESP+6]|里。这样结果就成了|[FF FF FF FF 00 27 00 00]|，如果从|[ESP+6]|开始读6字节的话，正好是我们想要的结果。
+
+书中补充了dsctbl.c里的|set_segmdesc|函数及相关段的知识。具体内容参见书本。
 \section{	初始化PIC（harib03d）	}
-\section{	中断处理程序的制作（harib03e）	}
+为了达到鼠标指针移动的目的，必须使用中断，而要使用中断必须将GDT和IDT正确无误的初始化。此时，需要初始化PIC。
+
+PIC（programmable interrupt controller），可编程中断控制器。PIC将8个中断信号（IRQ）集合成一个中断信号的装置。PIC监视输入管脚的8 个中断信号，只要有一个中断信号进来，就将唯一的输出管脚信号变成ON，并通知给CPU。最初设计者希望通过增加PIC来处理更多的中断信号，把中断信号设计成15 个，增设了2个PIC（主从PIC）。
+
+\cs
+
+\dag|projects\06_day\harib03d|
+\begin{code}[label=int.c的主要组成部分]
+void init_pic(void)
+/* PICの初期化 */
+{
+	io_out8(PIC0_IMR,  0xff  ); /* 全ての割り込みを受け付けない */
+	io_out8(PIC1_IMR,  0xff  ); /* 全ての割り込みを受け付けない */
+
+	io_out8(PIC0_ICW1, 0x11  ); /* エッジトリガモード */
+	io_out8(PIC0_ICW2, 0x20  ); /* IRQ0-7は、INT20-27で受ける */
+	io_out8(PIC0_ICW3, 1 << 2); /* PIC1はIRQ2にて接続 */
+	io_out8(PIC0_ICW4, 0x01  ); /* ノンバッファモード */
+
+	io_out8(PIC1_ICW1, 0x11  ); /* エッジトリガモード */
+	io_out8(PIC1_ICW2, 0x28  ); /* IRQ8-15は、INT28-2fで受ける */
+	io_out8(PIC1_ICW3, 2     ); /* PIC1はIRQ2にて接続 */
+	io_out8(PIC1_ICW4, 0x01  ); /* ノンバッファモード */
+
+	io_out8(PIC0_IMR,  0xfb  ); /* 11111011 PIC1以外は全て禁止 */
+	io_out8(PIC1_IMR,  0xff  ); /* 11111111 全ての割り込みを受け付けない */
+
+	return;
+}
+\end{code}
+
+以上是PIC的初始化程序。从CPU的角度看，PIC是外部设备，CPU使用OUT指令进行操作，程序中的PIC0和PIC1，分别指主PIC和从PIC。PIC内部有很多寄存器，用端口号码对彼此进行区别，以决定是写入哪一个寄存器。具体的端口号码写在bootpack.h里。
+
+\cs
+
+PIC寄存器是8位寄存器。IMR（interrupt mask register）是中断屏蔽寄存器。8位分别对应8路IRQ信号。如果某一位的值是1，则该位所对应的IRQ信号被屏蔽，PIC就忽略该路信号。这主要是因为，正在对中断设定进行更改时，如果再接受别的中断信号会引起混乱，为了防止这种情况发生，就必须屏蔽中断。还有，如果某个IRQ没有连接任何设备的话，静电干扰也可能会引起反应，导致操作系统混乱，所以也要屏蔽掉这类干扰。
+
+ICW（initial control word）是初始化控制数据。ICW有4个，分别编号为1$\sim$4，共有4个字节的数据。ICW1和ICW4主板配线方式、中断信号的电气特性等有关，不再叙述。ICW3是有关主-从连接的设定，对主PIC而言，第几号IRQ与从PIC相连，是用8位来设定的。对从PIC而言，该PIC与主PIC的第几号相连是用3位来设定。
+
+\cs
+
+不同的操作系统可以进行独特设定的只有ICW2。它决定了IRQ以哪一个信号中断通知CPU。
+
+这次是以|INT 0x20~0x2f|接收中断信号IRQ0$\sim$15而设定的，因为INT 0x00$\sim$0x1f用于应用程序想对操作系统干坏事的时候CPU内部系统保护通知，所以直接使用|INT 0x20~0x2f|。
+
+\section[中断处理程序的制作（harib03e）]{中断处理程序的制作（harib03e）\protect\footnote{书中讲到了IRQ1和IRQ12的中断处理程序，光盘里面补充了IRQ7的中断处理程序。详细解释见书。}}
+鼠标是IRQ12，键盘是IRQ1，编写了用于INT 0x2c和INT 0x21的中断处理程序（handler），即中断发生时要调用的程序。
+
+\begin{code}[label=int.c节选]
+void inthandler21(int *esp)
+/* PS/2キーボードからの割り込み */
+{
+	struct BOOTINFO *binfo = (struct BOOTINFO *) ADR_BOOTINFO;
+	boxfill8(binfo->vram, binfo->scrnx, COL8_000000, 0, 0, 32 * 8 - 1, 15);
+	putfonts8_asc(binfo->vram, binfo->scrnx, 0, 0, COL8_FFFFFF, "INT 21 (IRQ-1) : PS/2 keyboard");
+	for (;;) {
+		io_hlt();
+	}
+}
+\end{code}
+程序只是显示一条信息，然后保持在待机状态。鼠标的程序也几乎完全相同。
+
+\cs
+
+中断执行后不能执行return，而是必须执行IRETD指令。借助汇编语言修改naskfunc.nas。
+
+\dag|projects\06_day\harib03e|
+\begin{code}[label=naskfunc.nas节选]
+		EXTERN	_inthandler21, _inthandler27, _inthandler2c
+
+_asm_inthandler21:
+		PUSH	ES
+		PUSH	DS
+		PUSHAD
+		MOV		EAX,ESP
+		PUSH	EAX
+		MOV		AX,SS
+		MOV		DS,AX
+		MOV		ES,AX
+		CALL	_inthandler21
+		POP		EAX
+		POPAD
+		POP		DS
+		POP		ES
+		IRETD
+\end{code}
+
+其中，PUSHAD 相当于：
+\begin{code}
+PUSH EAX
+PUSH ECX
+PUSH EDX
+PUSH EBX
+PUSH ESP
+PUSH EBP
+PUSH ESI
+PUSH EDI
+\end{code}
+POPAD相当于按以上相反的顺序，把它们全都POP出来。
+
+\cs
+
+函数只是将寄存器的值保存到栈里，然后将DS和ES调整到与SS相等，再调用\_inthandler21，返回以后，将所有寄存器的值再返回到原来的值，然后执行IRETD。
+
+\cs
+
+将这个函数注册到IDT中去，在dsctbl.c的|init_gdtidt|里加入以下语句。
+
+\begin{code}
+    /* IDTの設定 */
+	set_gatedesc(idt + 0x21, (int) asm_inthandler21, 2 * 8, AR_INTGATE32);
+	set_gatedesc(idt + 0x27, (int) asm_inthandler27, 2 * 8, AR_INTGATE32);
+	set_gatedesc(idt + 0x2c, (int) asm_inthandler2c, 2 * 8, AR_INTGATE32);
+\end{code}
+|asm_inthandler21|注册在idt的第0x21号。这里的2$\times$8表示的是|asm_inthandler21|属于哪一个段，即段号是2，乘以8是因为低三位有别的意思，这里低三位必须为0，相当于写成“2<<3”。
+
+号码为2的段，正好涵盖了整个bootpack.hrb。最后的|AR_CODE32_ER|将IDT的属性设定为0x008e。它表示这是用于中断处理的有效设定。
+\begin{code}
+set_segmdesc(gdt + 2, LIMIT_BOTPAK, ADR_BOTPAK, AR_CODE32_ER);
+\end{code}
+
+\cs
+
+对bootpack.c的Harimain的补充。“|io_sti();|”仅仅是执行STI指令，它是CLI的逆指令。在HariMain的最后，修改了PIC的IMR，以便接收来自键盘和鼠标的中断。
+
+\cs
+
+运行程序会发现，键盘的中断响应正常，鼠标的却不行。
+
+
+
+
+
+
+
+
+
 

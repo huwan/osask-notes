@@ -1,0 +1,44 @@
+﻿\chapter{	分割编译与中断处理	}
+\section{	分割源文件（harib03a）	}
+将bootpack.c分割成了graphic.c、dsctbl.c、bootpack.c。
+\section{	整理Makefile（harib03b）	}
+\section{	整理头文件（harib03c）	}
+\section{	意犹未尽	}
+naskfunc.nas的|load_gdtr|函数：
+\begin{code}
+_load_gdtr:		; void load_gdtr(int limit, int addr);
+		MOV		AX,[ESP+4]		; limit
+		MOV		[ESP+6],AX
+		LGDT	[ESP+6]
+		RET
+\end{code}
+函数用来将指定的段上限（limit）和地址赋值给名为GDTR的48位寄存器。这是一个很特别的48位寄存器，并不能用我们常用的MOV指令来赋值。给它赋值的时候，唯一的方法就是指定内存地址，从指定的地址读取6个字节，然后复制给GDTR寄存器。完成这一任务的就是LGDT。
+
+该寄存器的低16位是段上限，它等于“GDT的有效字节数-1”。剩下的高32位代表GDT的开始地址。
+
+在最初执行这个函数的时候，|DWORD[ESP+4]|里存放的是段上限，|DWORD[ESP+8]|里存放的是地址。具体到实际的数值，就是0x000fff和0x00270000。把它们按字节写出来的话就成了|FF FF 00 00 00 27 00|(注意地位放在内存地址小的字节里)。为了执行LGDT，希望把它们排列成|FF FF 00 00 00 27 00|的样子，所以就先用“|MOV AX,[ESP+4]|”读取最初的0xffff，然后再写到|[ESP+6]|里。这样结果就成了|[FF FF FF FF 00 27 00 00]|，如果从|[ESP+6]|开始读6字节的话，正好是我们想要的结果。
+
+\section{	初始化PIC（harib03d）	}
+为了达到鼠标指针移动的目的，必须使用中断，而要使用中断必须将GDT和IDT正确无误的初始化。此时，需要初始化PIC。
+
+PIC（programmable interrupt controller），可编程中断控制器。PIC将8个中断信号（IRQ）集合成一个中断信号的装置。PIC监视输入管脚的8个中断信号，只要有一个中断信号进来，就将唯一的
+\section{	中断处理程序的制作（harib03e）	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
