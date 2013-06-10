@@ -1,9 +1,98 @@
 ﻿\chapter{	FIFO与鼠标控制	}
-\section{	获取按键编码（hiarib04a）	}
-\section{	加快中断处理（hiarib04b）	}
-\section{	制作FIFO缓冲区（hiarib04c）	}
-\section{	改善FIFO缓冲区（hiarib04d）	}
-\section{	整理FIFO缓冲区（hiarib04e）	}
+\section{	获取按键编码（harib04a）	}
+现在，只要在键盘上按一按键，就会在屏幕上显示信息，其他的我们什么也做不了。我们将程序改善一下，让程序在按下一个键后不会结束，而是把按键的编码在画面上显示出来，这样就可以切实完成中断处理程序了。
+
+更改的程序是init.c程序中的inthandler21函数，具体如下：
+\begin{code}
+#define PORT_KEYDAT		0x0060
+
+void inthandler21(int *esp)
+{
+	struct BOOTINFO *binfo = (struct BOOTINFO *) ADR_BOOTINFO;
+	unsigned char data, s[4];
+	io_out8(PIC0_OCW2, 0x61);	/* IRQ-01受付完了をPICに通知 */
+	data = io_in8(PORT_KEYDAT);
+
+	sprintf(s, "%02X", data);
+	boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+	putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+
+	return;
+}
+\end{code}
+
+\cs
+
+程序中|io_out8(PIC0_OCW2, 0x61);|这句话用来通知PIC已经知道发生了IRQ1 中断。如果是IRQ3，则写成0x63。执行这句话之后，PIC继续时刻监视IRQ1中断是否发生，反过来，如果忘记了执行这句话，PIC就不再监视IRQ1中断，不管下次由键盘输入什么信息，系统都感知不到了。
+
+\cs
+程序所完成的，是将接收到的按键编码显示在画面上，然后结束中断处理。
+
+\section{	加快中断处理（harib04b）	}
+程序里有一个问题，那就是字符显示的内容被放在了中断处理程序中。
+
+所谓中断处理，基本上就是打断CPU本来的工作，加塞要求进行处理，所以必须完成得干净利索。而且中断处理进行期间，不再接收别的中断。所以如果我们处理键盘的中断速度太慢，就会出现鼠标的运动不连贯、不能从网上接收数据等情况。
+
+另一方面，字符显示要花大块的时间来进行处理。仅仅画一个字符，就要执行8 $\times$16=128次if语句，来判断是否要往VRAM里描画该像素。如果判定为描画该像素，还要执行内存写入指令。而且为确定具体往内存的哪个地方写，还要做很多地址计算。这些事情，在我们看来，或许只是一瞬间的事情，但在计算机看来，可不是这样。
+
+谁也不知道其他中断会在哪个瞬间到来。事实上，很可能在键盘输入的同时，就有数据正在从网上下载，而PIC在等待键盘中断处理的结束。
+
+\cs
+
+解决方案是先将按键的编码接收下来，保存到变量里去，然后由HariMain偶尔去看看这个变量。如果发现有了数据，就把它显示出来。
+
+\begin{code}
+struct KEYBUF keybuf;
+
+void inthandler21(int *esp)
+{
+	unsigned char data;
+	io_out8(PIC0_OCW2, 0x61);	/* IRQ-01受付完了をPICに通知 */
+	data = io_in8(PORT_KEYDAT);
+	if (keybuf.flag == 0) {
+		keybuf.data = data;
+		keybuf.flag = 1;
+	}
+	return;
+}
+\end{code}
+
+考虑到键盘的输入时需要缓冲区，先定义一个构造体，命名为keybuf。其中的flag变量用于表示这个缓冲区是否为空。如果flag是0，表示缓冲区为空；如果flag为1，表示缓冲区中有数据。那么，如果缓冲区有数据，而这时又来了一个中断，那么该怎么办呢？先不管哈~
+
+\cs
+
+\begin{code}[label=bootpack.c中HariMain函数节选]
+for (;;) {
+		io_cli();
+		if (keybuf.flag == 0) {
+			io_stihlt();
+		} else {
+			i = keybuf.data;
+			keybuf.flag = 0;
+			io_sti();
+			sprintf(s, "%02X", i);
+			boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+			putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+		}
+	}
+\end{code}
+开始先用|io_cli|指令屏蔽中断。
+
+如果flag的值是0，说明键还没有被按下，keybuf.data里没有值 保存下来。在keybuf.data里有值被保存下来之前我们无事可做，所以干脆去执行|io_hlt|。但是，由于已经执行了|io_cli|屏蔽了中断，如果这样就去执行HLT指令的话，即使没有什么键被按下，程序也不会有任何反应。所以STI和HLT都要执行，而执行这两个指令的函数就是|io_stihlt|。执行HLT指令以后，如果收到了PIC的通知，CPU就会被唤醒。这样，CPU首先会去执行中断处理程序。中断处理程序执行完之后，又回到for语句的开头，再执行|io_cli|函数。
+
+如果通过中断处理函数在keybuf.data里存入了按键编码，else语句就会被执行。先将这个键码（keybuf.data）值保存到变量i里，然后将flag置为0表示键码值清为空，最后再通过|io_sti|语句开放中断。
+
+\cs
+
+运行程序，能够顺利执行……但是，右Ctrl键的显示是有问题的。
+
+查阅资料得知，当按下右Ctrl键时，会产生两个字节的键码值“E0 1D”，而松开这个键之后，会产生两个字节的键码值“E0 9D”。在一次产生两个字节键码值的情况下，因为键盘内部电路一次只能发送一个字节，所以一次按键会产生两次中断，第一次中断时发送E0，第二次中断发生1D。
+
+在harib04a中，以上两次中断所发送的值都能收到，瞬间显示E0后，紧接着又显示1D或者9D。而在harib04b中，HariMain函数在收到E0之前，又收到前一次按键产生的1D或者9D，而这个字节被舍弃了。
+
+\section{	制作FIFO缓冲区（harib04c）	}
+\section{	改善FIFO缓冲区（harib04d）	}
+\section{	整理FIFO缓冲区（harib04e）	}
 \section{	总算讲到鼠标了（harib04f）	}
 \section{	从鼠标接受数据（harib04g）	}
 
