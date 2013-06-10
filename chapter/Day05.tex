@@ -47,6 +47,7 @@ void HariMain(void)
 	ysize = (*binfo).scrny;
 	vram = (*binfo).vram;
 \end{code}
+
 \section{	试用箭头记号（harib02c）	}
 C语言中常常会用到类似于(*binfo).scrnx的表现手法，因此出现了一种不使用括号的省略表现方式，即binfo->scrnx，称之为箭头标记方式。
 \dag|projects\05_day\harib02c|
@@ -58,6 +59,7 @@ void HariMain(void)
 	init_palette();
 	init_screen(binfo->vram, binfo->scrnx, binfo->scrny);
 \end{code}
+
 上面几小节都是C语言的写法问题，编译成机器语言以后几乎没什么差别。只是后面的这些写法更简洁清晰一些。
 \section{	显示字符（harib02d）	}
 使用8$\times$16的长方形像素点阵来表示字符。
@@ -71,12 +73,12 @@ void HariMain(void)
 像这种描述文字形状的数据称为字体数据，通过数组来保存，写入程序。
 \dag|projects\05_day\harib02d|
 \begin{code}[label=bootpack.c节选]
-\begin{code}
 	static char font_A[16] = {
 		0x00, 0x18, 0x18, 0x18, 0x18, 0x24, 0x24, 0x24,
 		0x24, 0x7e, 0x42, 0x42, 0x42, 0xe7, 0x00, 0x00
 	};
 \end{code}
+
 用for语句将画8个像素的程序循环16遍，就可以显示出一个字符了。
 \begin{code}[label=bootpack.c节选]
 void putfont8(char *vram, int xsize, int x, int y, char c, char *font)
@@ -141,6 +143,7 @@ void HariMain(void)
 	}
 }
 \end{code}
+
 \section{	显示字符串（harib02f）	}
 可以直接显示字符串，而不是一个个字符写在程序里。
 
@@ -174,6 +177,7 @@ void HariMain(void)
 	}
 }
 \end{code}
+
 \section{	显示变量值（harib02g）	}
 显示变量的值，这个很有用，因为这里没有调试器，调试系统不是很容易，所以还是打印变量值来看看到底哪里不对了。由于在自制操作系统中不能随便使用printf函数，但可以使用sprintf，它不是按制定格式输出，只是将输出的内容作为字符串写在内存中，所以可以应用于所有操作系统。
 
@@ -188,6 +192,7 @@ sprintf函数的使用方法是：sprintf(地址，格式，值，值，值，$\
     sprintf(s, "scrnx = %d", binfo->scrnx);
 	putfonts8_asc(binfo->vram, binfo->scrnx, 16, 64, COL8_FFFFFF, s);
 \end{code}
+
 \section{	显示鼠标指针（harib02h）	}
 将鼠标指针的大小定为16$\times$16。
 
@@ -232,6 +237,7 @@ void init_mouse_cursor8(char *mouse, char bc)
 	return;
 }
 \end{code}
+
 变量bc是指back-color，也就是背景色。
 
 要将背景色显示出来，只要将buf中的数据复制到vram中去就可以了。
@@ -248,6 +254,7 @@ void putblock8_8(char *vram, int vxsize, int pxsize,
 	return;
 }
 \end{code}
+
 函数中，vram和vxsize是关于VRAM的信息，值分别为0xa0000和320。pxsize和pysize是想要显示的图形的大小，这里是鼠标指针的大小16。px0和py0指定图形在画面上的显示位置。最后的buf和bxsize分别指定图形的存放地址和每一行含有的像素数。
 
 调用函数：

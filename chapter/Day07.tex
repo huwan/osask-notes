@@ -76,6 +76,7 @@ for (;;) {
 		}
 	}
 \end{code}
+
 开始先用|io_cli|指令屏蔽中断。
 
 如果flag的值是0，说明键还没有被按下，keybuf.data里没有值 保存下来。在keybuf.data里有值被保存下来之前我们无事可做，所以干脆去执行|io_hlt|。但是，由于已经执行了|io_cli|屏蔽了中断，如果这样就去执行HLT指令的话，即使没有什么键被按下，程序也不会有任何反应。所以STI和HLT都要执行，而执行这两个指令的函数就是|io_stihlt|。执行HLT指令以后，如果收到了PIC的通知，CPU就会被唤醒。这样，CPU首先会去执行中断处理程序。中断处理程序执行完之后，又回到for语句的开头，再执行|io_cli|函数。
@@ -91,8 +92,240 @@ for (;;) {
 在harib04a中，以上两次中断所发送的值都能收到，瞬间显示E0后，紧接着又显示1D或者9D。而在harib04b中，HariMain函数在收到E0之前，又收到前一次按键产生的1D或者9D，而这个字节被舍弃了。
 
 \section{	制作FIFO缓冲区（harib04c）	}
+问题在于这里创建的缓冲区只存储一个字节，如果做一个能够存储多字节的缓冲区，那么它就不会满，问题也就解决了。
+
+根据这种思路，有一下程序：
+\begin{code}
+struct KEYBUF {
+	unsigned char data[32];
+	int next;
+};
+
+void inthandler21(int *esp)
+{
+	unsigned char data;
+	io_out8(PIC0_OCW2, 0x61);	/* IRQ-01受付完了をPICに通知 */
+	data = io_in8(PORT_KEYDAT);
+	if (keybuf.next < 32) {
+		keybuf.data[keybuf.next] = data;
+		keybuf.next++;
+	}
+	return;
+}
+\end{code}
+
+keybuf.next的起点是“0”，所以最初存储的数据是keybuf.data[0]，共32个存储位置。
+
+下一个存储位置用变量next来管理。这样就可以记住32个数据，而不会溢出，但是为保险起见，next的值变成32之后，就舍去不要了。
+
+\cs
+
+取得数据的程序如下：
+
+\begin{code}
+	for (;;) {
+		io_cli();
+		if (keybuf.next == 0) {
+			io_stihlt();
+		} else {
+			i = keybuf.data[0];
+			keybuf.next--;
+			for (j = 0; j < keybuf.next; j++) {
+				keybuf.data[j] = keybuf.data[j + 1];
+			}
+			io_sti();
+			sprintf(s, "%02X", i);
+			boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+			putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+		}
+	}
+\end{code}
+
+如果next不是0，则说明至少有一个数据。最开始的一个数据肯定是放在|data[0]|中的，将这个数据存入到变量i中去。这样，数就减少一个，所以将next减去1。
+
+接下来，for循环中，数据的存放位置全部都向前移送一个位置。
+
+\cs
+此时，右Ctrl的处理运行正常。但从|data[0]|取得数据后有关数据移送的处理不尽如人意。
+
+数据移送处理本身没有什么不好，只是在禁止中断期间做数据移送处理有问题。但如果在数据移送处理前就允许中断的话，会搞乱要处理的数据，这当然不行。下面解决。
 \section{	改善FIFO缓冲区（harib04d）	}
+想开发一个不需要数据移送操作的FIFO型缓冲区。基本思路是：不仅维护下一个要写入数据的位置，还要维护下一个要读出数据的位置。这就像数据读出位置在追着数据写入位置跑一样。这样就不需要数据移送操作了。数据读出位置追上数据写入位置的时候，就相当于缓冲区为空，没有数据。
+
+但是这样的缓冲区使用一段时间后，下一个数据写入位置会变成31，而这时下一个数据读出位置可能已经是29或30什么的了。当下一个写入位置变成32的时候，就走到死胡同了。因为下面没地方可以写入数据了。
+
+如果当下一个数据写入位置到达缓冲区终点时，数据读出位置也恰好到达缓冲区终点，也就是说缓冲区正好变空，那还好说。我们只要将下一个数据写入位置和下一个数据读出位置都再置为0就行了，就像转回去从头再来一样。
+
+但是总还是会有数据读出位置没有追上数据写入位置的情况。这时，又不得不进行数据移送操作。原来是每次都要进行数据移送，而现在不用每次都做。
+
+仔细想一下，当下一个数据写入位置到达缓冲区最末尾，缓冲区开头部分应该已经变空了（如果还没有变空，说明数据读出跟不上数据写入，只能把部分数据扔掉了）。因此如果下一个数据写入位置到了32以后，就强制性地将它设置为0.这样一来，下一个数据写入位置就跑到了下一个数据读出位置的后面，让人觉得怪怪的。但这无关紧要，没什么问题。
+
+对下一个数据读出位置也做同样的处理，一旦到了32以后，就把它设置为从0开始继续读取数据。这样32字节的缓冲区就能一圈一圈地不停循环，长久使用。数据移送操作一次都不需要。
+
+\cs
+
+相应的代码如下：
+\begin{code}[label=bootpack.h节选]
+struct KEYBUF {
+	unsigned char data[32];
+	int next_r, next_w, len;
+};
+\end{code}
+
+变量len是指缓冲区能记录多少字节的数据。
+
+\begin{code}[label=int.c节选]
+void inthandler21(int *esp)
+{
+	unsigned char data;
+	io_out8(PIC0_OCW2, 0x61);	/* IRQ-01受付完了をPICに通知 */
+	data = io_in8(PORT_KEYDAT);
+	if (keybuf.len < 32) {
+		keybuf.data[keybuf.next_w] = data;
+		keybuf.len++;
+		keybuf.next_w++;
+		if (keybuf.next_w == 32) {
+			keybuf.next_w = 0;
+		}
+	}
+	return;
+}
+\end{code}
+
+读出数据程序如下：
+\begin{code}
+	for (;;) {
+		io_cli();
+		if (keybuf.len == 0) {
+			io_stihlt();
+		} else {
+			i = keybuf.data[keybuf.next_r];
+			keybuf.len--;
+			keybuf.next_r++;
+			if (keybuf.next_r == 32) {
+				keybuf.next_r = 0;
+			}
+			io_sti();
+			sprintf(s, "%02X", i);
+			boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+			putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+		}
+	}
+\end{code}
 \section{	整理FIFO缓冲区（harib04e）	}
+将结构做成这样：
+\begin{code}
+struct FIFO8 {
+	unsigned char *buf;
+	int p, q, size, free, flags;
+};
+\end{code}
+
+如果我们将缓冲区大小固定成32字节的话，以后改起来就不方便了，所以把它定义成可变的。缓冲区的总字节数保存在变量size里。变量free用于保存缓冲区里没有数据的字节数。缓冲区地址保存在变量buf里。p代表下一个数据写入地址，q代表下一个数据读出地址。
+\begin{code}
+void fifo8_init(struct FIFO8 *fifo, int size, unsigned char *buf)
+/* FIFOバッファの初期化 */
+{
+	fifo->size = size;
+	fifo->buf = buf;
+	fifo->free = size; /* 空き */
+	fifo->flags = 0;
+	fifo->p = 0; /* 書き込み位置 */
+	fifo->q = 0; /* 読み込み位置 */
+	return;
+}
+\end{code}
+
+|fifo8_init|是结构的初始化函数，用来设定各种初始值，也就是设定FIFO8结构的地址以及与结构有关的各种参数。
+
+\begin{code}
+#define FLAGS_OVERRUN		0x0001
+
+int fifo8_put(struct FIFO8 *fifo, unsigned char data)
+/* FIFOへデータを送り込んで蓄える */
+{
+	if (fifo->free == 0) {
+		/* 空きがなくてあふれた */
+		fifo->flags |= FLAGS_OVERRUN;
+		return -1;
+	}
+	fifo->buf[fifo->p] = data;
+	fifo->p++;
+	if (fifo->p == fifo->size) {
+		fifo->p = 0;
+	}
+	fifo->free--;
+	return 0;
+}
+\end{code}
+
+|fifo8_put|是往FIFO缓冲区存储1字节信息的函数。用flags这一变量来记录是否溢出。
+
+\begin{code}
+int fifo8_get(struct FIFO8 *fifo)
+/* FIFOからデータを一つとってくる */
+{
+	int data;
+	if (fifo->free == fifo->size) {
+		/* バッファが空っぽのときは、とりあえず-1が返される */
+		return -1;
+	}
+	data = fifo->buf[fifo->q];
+	fifo->q++;
+	if (fifo->q == fifo->size) {
+		fifo->q = 0;
+	}
+	fifo->free++;
+	return data;
+}
+\end{code}
+
+|fifo8_get|是从FIFO缓冲区取出1字节的函数。
+\begin{code}
+int fifo8_status(struct FIFO8 *fifo)
+/* どのくらいデータが溜まっているかを報告する */
+{
+	return fifo->size - fifo->free;
+}
+\end{code}
+
+|fifo8_status|用来查看缓冲区状态。
+
+使用以上函数，写成的程序段如下：
+\begin{code}
+struct FIFO8 keyfifo;
+
+void inthandler21(int *esp)
+{
+	unsigned char data;
+	io_out8(PIC0_OCW2, 0x61);	/* IRQ-01受付完了をPICに通知 */
+	data = io_in8(PORT_KEYDAT);
+	fifo8_put(&keyfifo, data);
+	return;
+}
+\end{code}
+
+MariMain函数内容如下：
+\begin{code}
+	char s[40], mcursor[256], keybuf[32];
+
+	fifo8_init(&keyfifo, 32, keybuf);
+
+	for (;;) {
+		io_cli();
+		if (fifo8_status(&keyfifo) == 0) {
+			io_stihlt();
+		} else {
+			i = fifo8_get(&keyfifo);
+			io_sti();
+			sprintf(s, "%02X", i);
+			boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+			putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+		}
+	}
+\end{code}
+
+程序运行正常！
 \section{	总算讲到鼠标了（harib04f）	}
 \section{	从鼠标接受数据（harib04g）	}
 

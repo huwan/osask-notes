@@ -14,6 +14,7 @@ _load_gdtr:		; void load_gdtr(int limit, int addr);
 		LGDT	[ESP+6]
 		RET
 \end{code}
+
 函数用来将指定的段上限（limit）和地址赋值给名为GDTR的48位寄存器。这是一个很特别的48位寄存器，并不能用我们常用的MOV指令来赋值。给它赋值的时候，唯一的方法就是指定内存地址，从指定的地址读取6个字节，然后复制给GDTR寄存器。完成这一任务的就是LGDT。
 
 该寄存器的低16位是段上限，它等于“GDT的有效字节数-1”。剩下的高32位代表GDT的开始地址。
@@ -82,9 +83,11 @@ void inthandler21(int *esp)
 	}
 }
 \end{code}
+
 程序只是显示一条信息，然后保持在待机状态。鼠标的程序也几乎完全相同。
 
 \cs
+
 
 中断执行后不能执行return，而是必须执行IRETD指令。借助汇编语言修改naskfunc.nas。
 
@@ -120,6 +123,7 @@ PUSH EBP
 PUSH ESI
 PUSH EDI
 \end{code}
+
 POPAD相当于按以上相反的顺序，把它们全都POP出来。
 
 \cs
@@ -136,6 +140,7 @@ POPAD相当于按以上相反的顺序，把它们全都POP出来。
 	set_gatedesc(idt + 0x27, (int) asm_inthandler27, 2 * 8, AR_INTGATE32);
 	set_gatedesc(idt + 0x2c, (int) asm_inthandler2c, 2 * 8, AR_INTGATE32);
 \end{code}
+
 |asm_inthandler21|注册在idt的第0x21号。这里的2$\times$8表示的是|asm_inthandler21|属于哪一个段，即段号是2，乘以8是因为低三位有别的意思，这里低三位必须为0，相当于写成“2<<3”。
 
 号码为2的段，正好涵盖了整个bootpack.hrb。最后的|AR_CODE32_ER|将IDT的属性设定为0x008e。它表示这是用于中断处理的有效设定。
