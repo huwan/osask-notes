@@ -57,7 +57,7 @@ void inthandler21(int *esp)
 }
 \end{code}
 
-考虑到键盘的输入时需要缓冲区，先定义一个构造体，命名为keybuf。其中的flag变量用于表示这个缓冲区是否为空。如果flag是0，表示缓冲区为空；如果flag为1，表示缓冲区中有数据。那么，如果缓冲区有数据，而这时又来了一个中断，那么该怎么办呢？先不管哈~
+考虑到键盘的输入时需要缓冲区，先定义一个构造体，命名为keybuf。 其中的flag变量用于表示这个缓冲区是否为空。如果flag是0，表示缓冲区为空；如果flag为1，表示缓冲区中有数据。那么，如果缓冲区有数据，而这时又来了一个中断，那么该怎么办呢？先不管哈~
 
 \cs
 
@@ -81,7 +81,7 @@ for (;;) {
 
 如果flag的值是0，说明键还没有被按下，keybuf.data里没有值 保存下来。在keybuf.data里有值被保存下来之前我们无事可做，所以干脆去执行|io_hlt|。但是，由于已经执行了|io_cli|屏蔽了中断，如果这样就去执行HLT指令的话，即使没有什么键被按下，程序也不会有任何反应。所以STI和HLT都要执行，而执行这两个指令的函数就是|io_stihlt|。执行HLT指令以后，如果收到了PIC的通知，CPU就会被唤醒。这样，CPU首先会去执行中断处理程序。中断处理程序执行完之后，又回到for语句的开头，再执行|io_cli|函数。
 
-如果通过中断处理函数在keybuf.data里存入了按键编码，else语句就会被执行。先将这个键码（keybuf.data）值保存到变量i里，然后将flag置为0表示键码值清为空，最后再通过|io_sti|语句开放中断。
+如果通过中断处理函数在keybuf.data里存入了按键编码，else语句就会被执行。先将这个键码（keybuf.data）值保存到变量i里，然后将flag 置为0表示键码值清为空，最后再通过|io_sti|语句开放中断。
 
 \cs
 
@@ -221,7 +221,7 @@ struct FIFO8 {
 };
 \end{code}
 
-如果我们将缓冲区大小固定成32字节的话，以后改起来就不方便了，所以把它定义成可变的。缓冲区的总字节数保存在变量size里。变量free用于保存缓冲区里没有数据的字节数。缓冲区地址保存在变量buf里。p代表下一个数据写入地址，q代表下一个数据读出地址。
+如果我们将缓冲区大小固定成32字节的话，以后改起来就不方便了，所以把它定义成可变的。缓冲区的总字节数保存在变量size里。变量free 用于保存缓冲区里没有数据的字节数。缓冲区地址保存在变量buf里。p 代表下一个数据写入地址，q代表下一个数据读出地址。
 \begin{code}
 void fifo8_init(struct FIFO8 *fifo, int size, unsigned char *buf)
 /* FIFOバッファの初期化 */
@@ -327,5 +327,128 @@ MariMain函数内容如下：
 
 程序运行正常！
 \section{	总算讲到鼠标了（harib04f）	}
+较计算机的历史来说，鼠标比较新，早起的计算机并不支持，这一点从鼠标的中段号码IRQ12这一很大的数字就可以看出。
+
+鼠标作为计算机的一个外部设备开始使用的时候，几乎所有的操作系统都不支持它。在这种情况下，如果只是稍微一动鼠标就产生中断的话，那么使用那些操作系统的时候，就只好把鼠标先拔掉。这是很不方便的。为了不影响鼠标和其它设备的使用，主板上做了鼠标用的电路，但是只要不执行激活鼠标的指令，就不产生鼠标的中断信号。
+
+所谓不产生中断信号，也就是说，即使从鼠标传来了数据，CPU也不会接收。这样的话鼠标也就没必要传送数据了，否则会引起电路的混乱。所以，处于初期状态的鼠标，不管是滑动操作还是点击操作，都没有反应。
+
+总而言之，我们必须发现指令，让下面两个装置有效，一个是鼠标控制电路，一个是鼠标本身。
+
+\cs
+
+控制电路的设定。事实上，鼠标控制电路包含着键盘控制电路里，如果键盘控制电路的初始化正常完成，鼠标电路控制器的激活也就完成了。
+
+\begin{code}
+#define PORT_KEYDAT				0x0060
+#define PORT_KEYSTA				0x0064
+#define PORT_KEYCMD				0x0064
+#define KEYSTA_SEND_NOTREADY	0x02
+#define KEYCMD_WRITE_MODE		0x60
+#define KBC_MODE				0x47
+
+void wait_KBC_sendready(void)
+{
+	/* キーボードコントローラがデータ送信可能になるのを待つ */
+	for (;;) {
+		if ((io_in8(PORT_KEYSTA) & KEYSTA_SEND_NOTREADY) == 0) {
+			break;
+		}
+	}
+	return;
+}
+
+void init_keyboard(void)
+{
+	/* キーボードコントローラの初期化 */
+	wait_KBC_sendready();
+	io_out8(PORT_KEYCMD, KEYCMD_WRITE_MODE);
+	wait_KBC_sendready();
+	io_out8(PORT_KEYDAT, KBC_MODE);
+	return;
+}
+\end{code}
+
+函数|wait_KBC_sendready|的作用是让键盘控制电路做好准备动作，等待控制指令的到来。是因为虽然CPU的电路很快，但键盘控制电路却没有那么快。如果CPU不顾设备接收数据的能力，只是一个劲儿地发指令的话，有些指令会得不到执行，从而导致错误的结果。如果键盘控制电路可以接受CPU指令了，CPU从设备号码0x0064处所读取的数据的倒数第二位（从低位开始数的第二位）应该是0。在确认到这一位是0 之前，程序一直通过for语句循环查询。
+
+|init_keyboard|一边确认可否往键盘控制电路传送信息，一边发送模式设定指令，指令中包含着要设定为何种模式。模式设定的指令是0x60，利用鼠标模式的模式号码是0x47。
+
+在HariMain函数调用|init_keyboard|函数，鼠标控制电路的准备就完成了。
+
+\cs
+
+开始发送激活鼠标的指令。所谓发送鼠标激活指令，归根到底还是要向键盘控制器发送指令。
+\begin{code}
+#define KEYCMD_SENDTO_MOUSE		0xd4
+#define MOUSECMD_ENABLE			0xf4
+
+void enable_mouse(void)
+{
+	/* マウス有効 */
+	wait_KBC_sendready();
+	io_out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
+	wait_KBC_sendready();
+	io_out8(PORT_KEYDAT, MOUSECMD_ENABLE);
+	return; /* うまくいくとACK(0xfa)が送信されてくる */
+}
+\end{code}
+
+往键盘控制电路发送指令0xd4，下一个数据就会自动发送给鼠标。激活的鼠标发送返回值oxfa。
+
+在HariMain中调用函数，运行程序，鼠标中断可用。
+
 \section{	从鼠标接受数据（harib04g）	}
 
+取出中断数据：
+\begin{code}
+struct FIFO8 mousefifo;
+
+void inthandler2c(int *esp)
+/* PS/2マウスからの割り込み */
+{
+	unsigned char data;
+	io_out8(PIC1_OCW2, 0x64);	/* IRQ-12受付完了をPIC1に通知 */
+	io_out8(PIC0_OCW2, 0x62);	/* IRQ-02受付完了をPIC0に通知 */
+	data = io_in8(PORT_KEYDAT);
+	fifo8_put(&mousefifo, data);
+	return;
+}
+\end{code}
+
+IRQ-12是从PIC的第4号（从PIC相当于IRQ-08～IRQ-15），首先要通知IRQ-12受理已完成，然后再通知主PIC。这是因为主/从PIC的协调不能够自动完成，如果程序不教给主PIC该怎么做，它就会忽视从PIC的下一个中断请求。从PIC连接到主PIC的第2号上，这么做OK。
+
+\cs
+
+下面的鼠标数据取得方法，居然与键盘完全相同。靠中断号码来区分传到这个设备的数据究竟是来自键盘还是鼠标。
+
+取得数据的程序如下：
+\begin{code}
+	fifo8_init(&mousefifo, 128, mousebuf);
+
+	for (;;) {
+		io_cli();
+		if (fifo8_status(&keyfifo) + fifo8_status(&mousefifo) == 0) {
+			io_stihlt();
+		} else {
+			if (fifo8_status(&keyfifo) != 0) {
+				i = fifo8_get(&keyfifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484,  0, 16, 15, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+			} else if (fifo8_status(&mousefifo) != 0) {
+				i = fifo8_get(&mousefifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 47, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+			}
+		}
+	}
+\end{code}
+
+因为鼠标往往会比键盘更快地送出大量数据，所以我们将它的FIFO缓冲区增加到了128字节。这样，就算是一下子来了很多数据，也不会溢出。
+
+取得数据的程序中，如果键盘和鼠标的FIFO缓冲区都为空了，就执行HLT。如果不是两者都空，就先检查keyinfo，如果有数据，就取出一个显示出来。如果keyinfo是空，就再去检查mouseinfo，如果有数据，就取出一个显示出来。
+
+程序运行正常。
