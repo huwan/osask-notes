@@ -1,6 +1,452 @@
 ﻿\chapter{	内存管理	}
 \section{	整理源文件（harib06a）	}
-\section{	内存容量检查（1）（harib06b）	}
-\section{	内存容量检查（2）（harib06c）	}
-\section{	挑战内存管理（harib06d）	}
+鼠标指针的叠加处理留待以后处理，先转向内存管理。
 
+把bootpack.c里面的一些函数单独择出去。
+\begin{table}[!ht]
+  \centering
+  \begin{tabular}{|l|l|l|}
+  \hline
+  % after \\: \hline or \cline{col1-col2} \cline{col3-col4} ...
+  函数名 & 移动前 & 移动后 \\\hline
+    wait\_KBC\_sendready&	bootpack.c&	keyboard.c\\
+    init\_keyboard&	bootpack.c&	keyboard.c\\
+    enable\_mouse&	bootpack.c&	mouse.c\\
+    mouse\_decode&	bootpack.c&	mouse.c\\
+    inthandler21&	init.c&	keyboard.c\\
+    inthandler2c&	init.c&	mouse.c\\
+    \hline
+\end{tabular}
+\end{table}
+
+\section{	内存容量检查（1）（harib06b）	}
+
+在进行内存管理之前，必须要做的事情是搞清楚内存究竟到底有多大，范围是到哪里。
+
+在最初启动时，BIOS肯定要检查内存容量，所以只要我们问一问BIOS，就能知道内存容量有多大。但问题是，如果那样做的话，一方面asmhead.nas会变长，另一方面，BIOS版本不同，BIOS函数的调用方法也不相同，麻烦事太多了。所以，作者自己去检查内存。
+
+内存检查时，要往内存里随便写入一个值，然后马上读取，来检查读取的值与写入的值是否相等。如果内存连接正常，则写入的值能够记在内存里。如果没连接上，则读出的值肯定是乱七八糟的。但是，如果CPU里加上了缓存会导致写入和读出的不是内存，而是缓存。结果，所有的内存都“正常”，检查处理不能完成。
+
+所以，只有在内存检查时才将缓存设为OFF。具体来说，就是先查查CPU是不是在486以上，如果是，就将缓存设为OFF。按照这一思路，我们创建了以下函数memtest。
+
+\begin{code}[label=bootpack.c节选]
+#define EFLAGS_AC_BIT		0x00040000
+#define CR0_CACHE_DISABLE	0x60000000
+
+unsigned int memtest(unsigned int start, unsigned int end)
+{
+	char flg486 = 0;
+	unsigned int eflg, cr0, i;
+
+	/* 386か、486以降なのかの確認 */
+	eflg = io_load_eflags();
+	eflg |= EFLAGS_AC_BIT; /* AC-bit = 1 */
+	io_store_eflags(eflg);
+	eflg = io_load_eflags();
+	if ((eflg & EFLAGS_AC_BIT) != 0) { /* 386ではAC=1にしても自動で0 に戻ってしまう */
+		flg486 = 1;
+	}
+	eflg &= ~EFLAGS_AC_BIT; /* AC-bit = 0 */
+	io_store_eflags(eflg);
+
+	if (flg486 != 0) {
+		cr0 = load_cr0();
+		cr0 |= CR0_CACHE_DISABLE; /* キャッシュ禁止 */
+		store_cr0(cr0);
+	}
+
+	i = memtest_sub(start, end);
+
+	if (flg486 != 0) {
+		cr0 = load_cr0();
+		cr0 &= ~CR0_CACHE_DISABLE; /* キャッシュ許可 */
+		store_cr0(cr0);
+	}
+
+	return i;
+}
+\end{code}
+
+最初对EFLAGS进行的处理，是检查CPU是486以上还是386。如果是486以上，EFLAGS寄存器的第18位应该是所谓的AC标志位；如果CPU是386，那么就没有这个标志位，第18位一直是0。这里，我们有意识地把1写入到这一位，然后再读出EFLAGS的值，继而检查AC标志位是否仍为1。最后，将AC标志位重置为0。
+
+将AC标志位重置为0时，用到了AND运算，那里出现了一个运算符“~”，它是取反运算符，就是将所有的位都反转的意思。所以，|~EFLAGS_AC_BIT|与0xfffbffff 一样。
+
+为了禁止缓存，需要对CR0寄存器的某一标志位进行操作，需要用到函数|load_cr0| 和|store_cr0|，这个函数存在naskfunc.nas里。
+
+\begin{code}[label=naskfunc.nas节选]
+_load_cr0:		; int load_cr0(void);
+		MOV		EAX,CR0
+		RET
+
+_store_cr0:		; void store_cr0(int cr0);
+		MOV		EAX,[ESP+4]
+		MOV		CR0,EAX
+		RET
+\end{code}
+
+\cs
+
+|memtest_sub|函数，是内存检查处理的实现部分。
+
+\begin{code}
+unsigned int memtest_sub(unsigned int start, unsigned int end)
+{
+	unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+	for (i = start; i <= end; i += 0x1000) {
+		p = (unsigned int *) (i + 0xffc);
+		old = *p;			/* いじる前の値を覚えておく */
+		*p = pat0;			/* ためしに書いてみる */
+		*p ^= 0xffffffff;	/* そしてそれを反転してみる */
+		if (*p != pat1) {	/* 反転結果になったか？ */
+not_memory:
+			*p = old;
+			break;
+		}
+		*p ^= 0xffffffff;	/* もう一度反転してみる */
+		if (*p != pat0) {	/* 元に戻ったか？ */
+			goto not_memory;
+		}
+		*p = old;			/* いじった値を元に戻す */
+	}
+	return i;
+}
+\end{code}
+
+调查从start地址到end地址的范围内，能够使用的内存的末尾地址。首先如果p 不是指针，就不能指定地址去读取内存，所以先执行“p=i;”。紧接着使用这个p，将原值保存下来（变量old）。接着试写0xaa55aa55，在内存里反转该值，检查结果是否正确。如果正确，就再次反转它，检查一下是否能回复到初始值。最后，使用old变量，将内存的值恢复回去。如果在某个环节没能恢复成预想的值，那么就在那个环节终止调查，并报告终止时的地址。
+
+for 语句中i 的增值部分以及p的赋值部分。每次只增加4，就要检查全部内存，速度太慢了，所以改成了每次增加0x1000，相当于4KB，这样一来速度就提高了1000倍。p的赋值计算式也变了，这是因为，如果不进行任何改变仍写作“p=i;”的话，程序就会只检查4KB最开头的4个字节。所以要改为“p=i + 0xffc;”，让它只检查末尾的4个字节。
+
+
+\cs
+
+修改HariMain程序，添加以下部分：
+\begin{code}[label=bootpack.c节选]
+	i = memtest(0x00400000, 0xbfffffff) / (1024 * 1024);
+	sprintf(s, "memory %dMB", i);
+	putfonts8_asc(binfo->vram, binfo->scrnx, 0, 32, COL8_FFFFFF, s);
+\end{code}
+
+暂时先使用以上程序对0x00400000～0xbfffffff范围的内存进行检查。这个程序最大可以识别3GB范围的内存。0x00400000号以前的内存已经被使用了（参考8.5节的内存分布图），没有内存，程序根本运行不到这里，所以我们没做内存检查。以MB为单位。
+
+如果在QEMU上运行，根据模拟器的设定，内存应该为32MB。不过运行结果显示的是3072MB。有错误。
+
+\section{	内存容量检查（2）（harib06c）	}
+
+真正的原因是编译器对程序进行了优化，导致写的程序中有一些直接被「优化」掉了。
+
+使用“make -r bootpack.nas”来运行的话，就可以确认bootpack.c被编译成了什么样的机器语言。用文本编辑器看一看生成的bootpack.nas会发现，最下边有|memtest_sub|的编译结果。
+
+\begin{code}[label=memtest\_sub的编译结果]
+_memtest_sub:
+    PUSH    EBP                 ; C编译器的固定语句
+    MOV EBP,ESP
+    MOV EDX,DWORD [12+EBP]      ; EDX = end;
+    MOV EAX,DWORD [8+EBP]       ; EAX = start; /* EAX是i */
+    CMP EAX,EDX                 ; if (EAX > EDX) goto L30;
+    JA  L30
+L36:
+L34:
+    ADD EAX,4096                ; EAX += 0x1000;
+    CMP EAX,EDX                 ; if (EAX <= EDX) goto L36;
+    JBE L36
+L30:
+    POP EBP                     ; 接收前文中PUSH的EBP
+    RET                         ; return;
+\end{code}
+
+与原始程序相比会发现，编译后没有XOR等指令，而且，好像编译后只剩下了for 语句。
+
+\cs
+
+编译器优化过程：
+
+首先将内存的内容保存到old里，然后写入pat0的值，再反转，最后跟pat1进行比较。肯定相等，if语句不成立，得不到执行，所以把它删掉，将比较*p和pat0这部分也删掉。
+\begin{code}
+ unsigned int memtest_sub(unsigned int start, unsigned int end)
+  {
+      unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+      for (i = start; i <= end; i += 0x1000) {
+          p = (unsigned int *) (i + 0xffc);
+
+          old = *p;           /* 先记住修改前的值*/
+          *p = pat0;          /* 试写 */
+          *p ^= 0xffffffff;   /* 反转 */
+          *p ^= 0xffffffff;   /* 再次反转 */
+          *p = old;           /* 恢复为修改前的值 */
+      }
+      return i;
+  }
+\end{code}
+
+反转了两次会变回之前的状态，所以这些处理也可以不要。
+\begin{code}
+unsigned int memtest_sub(unsigned int start, unsigned int end)
+  {
+      unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+      for (i = start; i <= end; i += 0x1000) {
+          p = (unsigned int *) (i + 0xffc);
+          old = *p;           /* 先记住修改前的值 */
+          *p = pat0;          /* 试写 */
+          *p = old;           /* 恢复为修改前的值 */
+      }
+      return i;
+  }
+\end{code}
+
+还有，“*p = pat0;”本来就没有意义。反正要将old的值赋给*p。
+\begin{code}
+unsigned int memtest_sub(unsigned int start, unsigned int end)
+  {
+      unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+      for (i = start; i <= end; i += 0x1000) {
+          p = (unsigned int *) (i + 0xffc);
+          old = *p;           /* 先记住修改前的值 */
+          *p = old;           /* 恢复为修改前的值 */
+      }
+      return i;
+  }
+\end{code}
+
+*p里面实际没写进任何内容，删。
+\begin{code}
+unsigned int memtest_sub(unsigned int start, unsigned int end)
+  {
+      unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+      for (i = start; i <= end; i += 0x1000) {
+          p = (unsigned int *) (i + 0xffc);
+      }
+      return i;
+  }
+\end{code}
+
+这里的地址变量p，虽然计算了地址，却一次也没有用到，old、pat0、pat1 也都是用不到的变量。全部都舍弃掉。
+
+\begin{code}
+ unsigned int memtest_sub(unsigned int start, unsigned int end)
+  {
+      unsigned int i;
+      for (i = start; i <= end; i += 0x1000) { }
+      return i;
+  }
+\end{code}
+
+根据以上编译器的思路，我们可以看出，它进行了最优化处理。但其实这个工作本来是不需要的。用于应用程序的C编译器，根本想不到会对没有内存的地方进行读写。
+
+如果更改编译选项，是可以停止最优化处理的。可是在其他地方，我们还是需要如此考虑周密的最优化处理的，所以不想更改编译选项。于是决定|memtest_sub|也用汇编来写。
+
+\begin{code}[label=naskfunc.nas节选]
+_memtest_sub:   ; unsigned int memtest_sub(unsigned int start, unsigned int end)
+		PUSH	EDI						; （EBX, ESI, EDI も使いたいので）
+        PUSH    ESI
+        PUSH    EBX
+        MOV     ESI,0xaa55aa55          ; pat0 = 0xaa55aa55;
+        MOV     EDI,0x55aa55aa          ; pat1 = 0x55aa55aa;
+        MOV     EAX,[ESP+12+4]          ; i = start;
+mts_loop:
+        MOV     EBX,EAX
+        ADD     EBX,0xffc               ; p = i + 0xffc;
+        MOV     EDX,[EBX]               ; old = *p;
+        MOV     [EBX],ESI               ; *p = pat0;
+        XOR     DWORD [EBX],0xffffffff  ; *p ^= 0xffffffff;
+        CMP     EDI,[EBX]               ; if (*p != pat1) goto fin;
+        JNE     mts_fin
+        XOR     DWORD [EBX],0xffffffff  ; *p ^= 0xffffffff;
+        CMP     ESI,[EBX]               ; if (*p != pat0) goto fin;
+        JNE     mts_fin
+        MOV     [EBX],EDX               ; *p = old;
+        ADD     EAX,0x1000              ; i += 0x1000;
+        CMP     EAX,[ESP+12+8]          ; if (i <= end) goto mts_loop;
+
+       JBE     mts_loop
+        POP     EBX
+        POP     ESI
+        POP     EDI
+        RET
+mts_fin:
+        MOV     [EBX],EDX               ; *p = old;
+        POP     EBX
+        POP     ESI
+        POP     EDI
+        RET
+\end{code}
+
+删除bootpack.c中的|memtest_sub|函数，运行程序。内存容量显示正常。
+\section{	挑战内存管理（harib06d）	}
+内存管理的基础，一是内存分配，一是内存释放。\footnote{建议找本操作系统的书看看各种内存管理方法。这里不想写了。}
+
+内存管理程序：
+\begin{code}[label=bootpack.c节选]
+#define MEMMAN_FREES		4090	/* 偙傟偱栺32KB */
+
+struct FREEINFO {	/* あき情報 */
+	unsigned int addr, size;
+};
+
+struct MEMMAN {		/* メモリ管理 */
+	int frees, maxfrees, lostsize, losts;
+	struct FREEINFO free[MEMMAN_FREES];
+};
+
+void memman_init(struct MEMMAN *man)
+{
+	man->frees = 0;			/* あき情報の個数 */
+	man->maxfrees = 0;		/* 状況観察用：freesの最大値 */
+	man->lostsize = 0;		/* 解放に失敗した合計サイズ */
+	man->losts = 0;			/* 解放に失敗した回数 */
+	return;
+}
+
+unsigned int memman_total(struct MEMMAN *man)
+/* あきサイズの合計を報告 */
+{
+	unsigned int i, t = 0;
+	for (i = 0; i < man->frees; i++) {
+		t += man->free[i].size;
+	}
+	return t;
+}
+
+unsigned int memman_alloc(struct MEMMAN *man, unsigned int size)
+/* 確保 */
+{
+	unsigned int i, a;
+	for (i = 0; i < man->frees; i++) {
+		if (man->free[i].size >= size) {
+			/* 十分な広さのあきを発見 */
+			a = man->free[i].addr;
+			man->free[i].addr += size;
+			man->free[i].size -= size;
+			if (man->free[i].size == 0) {
+				/* free[i]がなくなったので前へつめる */
+				man->frees--;
+				for (; i < man->frees; i++) {
+					man->free[i] = man->free[i + 1]; /* 構造体の代入 */
+				}
+			}
+			return a;
+		}
+	}
+	return 0; /* あきがない */
+}
+\end{code}
+
+一开始的struct MEMMAN，创建了4000 组，留出不少余量，管理空间大约是32KB。其中还有变量 maxfrees、lostsize、losts等，这些变量与管理本身没有关系，不用在意它们。如果特别想了解的话，可以看看函数|memman_init|的注释，里面有介绍。
+
+函数|memman_init|对memman进行了初始化，设定为空。主要工作，是将frees 设为0，而其他的都是附属性设定。
+
+函数|memman_total|用来计算可用内存的合计大小并返回。
+
+最后的|memman_alloc|函数，功能是分配指定大小的内存。除了|free[i].size| 变为0时的处理以外的部分，在前面已经说过了。
+
+|memman_alloc|函数中|free[i].size|等于0的处理，与FIFO缓冲区的处理方法很相似，要进行移位处理。希望大家注意以下写法：
+\begin{code}
+man->free[i].addr = man->free[i+1].addr;
+
+man->free[i].size = man->free[i+1].size;
+\end{code}
+
+
+我们在这里将其归纳为了：
+\begin{code}
+man->free[i] = man->free[i+1];
+\end{code}
+
+这种方法被称为结构体赋值，其使用方法如上所示，可以写成简单的形式。
+
+\cs
+
+释放内存函数，也就是往memman里追加可用内存信息的函数，稍微有点复杂。
+
+\begin{code}[label=bootpack.c节选]
+int memman_free(struct MEMMAN *man, unsigned int addr, unsigned int size)
+/* 解放 */
+{
+	int i, j;
+	/* まとめやすさを考えると、free[]がaddr順に並んでいるほうがいい */
+	/* だからまず、どこに入れるべきかを決める */
+	for (i = 0; i < man->frees; i++) {
+		if (man->free[i].addr > addr) {
+			break;
+		}
+	}
+	/* free[i - 1].addr < addr < free[i].addr */
+	if (i > 0) {
+		/* 前がある */
+		if (man->free[i - 1].addr + man->free[i - 1].size == addr) {
+			/* 前のあき領域にまとめられる */
+			man->free[i - 1].size += size;
+			if (i < man->frees) {
+				/* 後ろもある */
+				if (addr + size == man->free[i].addr) {
+					/* なんと後ろともまとめられる */
+					man->free[i - 1].size += man->free[i].size;
+					/* man->free[i]の削除 */
+					/* free[i]がなくなったので前へつめる */
+					man->frees--;
+					for (; i < man->frees; i++) {
+						man->free[i] = man->free[i + 1]; /* 構造体の代入 */
+					}
+				}
+			}
+			return 0; /* 成功終了 */
+		}
+	}
+	/* 前とはまとめられなかった */
+	if (i < man->frees) {
+		/* 後ろがある */
+		if (addr + size == man->free[i].addr) {
+			/* 後ろとはまとめられる */
+			man->free[i].addr = addr;
+			man->free[i].size += size;
+			return 0; /* 成功終了 */
+		}
+	}
+	/* 前にも後ろにもまとめられない */
+	if (man->frees < MEMMAN_FREES) {
+		/* free[i]より後ろを、後ろへずらして、すきまを作る */
+		for (j = man->frees; j > i; j--) {
+			man->free[j] = man->free[j - 1];
+		}
+		man->frees++;
+		if (man->maxfrees < man->frees) {
+			man->maxfrees = man->frees; /* 最大値を更新 */
+		}
+		man->free[i].addr = addr;
+		man->free[i].size = size;
+		return 0; /* 成功終了 */
+	}
+	/* 後ろにずらせなかった */
+	man->losts++;
+	man->lostsize += size;
+	return -1; /* 失敗終了 */
+}
+\end{code}
+
+如果可用信息表满了，就按照舍去之后带来损失最小的原则进行割舍。但是在这个程序里，我们并没有对损失程度进行比较，而是舍去了刚刚进来的可用信息，这只是为了图个方便。
+
+\cs
+
+最后，将这个程序应用于HariMain，结果就变成了下面这样。
+
+\begin{code}[label=bootpack.c节选]
+#define MEMMAN_ADDR         0x003c0000
+
+void HariMain(void)
+{
+    （中略）
+    unsigned int memtotal;
+    struct MEMMAN *memman = (struct MEMMAN *) MEMMAN_ADDR;
+    （中略）
+    memtotal = memtest(0x00400000, 0xbfffffff);
+    memman_init(memman);
+    memman_free(memman, 0x00001000, 0x0009e000); /* 0x00001000 - 0x0009efff */
+    memman_free(memman, 0x00400000, memtotal - 0x00400000);
+    （中略）
+    sprintf(s, "memory %dMB   free : %dKB",
+            memtotal / (1024 * 1024), memman_total(memman) / 1024);
+    putfonts8_asc(binfo->vram, binfo->scrnx, 0, 32, COL8_FFFFFF, s);
+\end{code}
+
+memman需要32KB，我们暂时决定使用自0x003c0000开始的32KB（0x00300000号地址以后，今后的程序即使有所增加，预计也不会到达0x003c0000，所以我们使用这一数值），然后计算内存总量memtotal，将现在不用的内存以0x1000个字节为单位注册到memman里。最后，显示出合计可用内存容量。在QEMU上执行时，有时会注册成632KB和28MB。$632+28672=29304$，所以屏幕上会显示出29304KB。
+
+ 
